@@ -65,6 +65,13 @@ th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line);}
 th{color:var(--text-soft);font-weight:600;background:var(--bg);}
 tr:hover td{background:var(--primary-soft);}
 .num{text-align:right;font-variant-numeric:tabular-nums;}
+/* 薪资分配表：清爽轻量，去除厚重边框 */
+table.alloc{font-size:13px;background:transparent;border:none;margin-top:10px;}
+table.alloc th,table.alloc td{border:none;border-bottom:1px solid var(--line);padding:11px 8px;}
+table.alloc th{background:transparent;color:var(--text-soft);font-weight:600;font-size:12.5px;}
+table.alloc tbody tr:last-child td{border-bottom:none;}
+.fld{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#fff;color:var(--text);font-size:13px;outline:none;transition:.15s;}
+.fld:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-soft);}
 .empty{text-align:center;color:var(--text-soft);padding:26px 10px;font-size:14px;}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;}
 .stat{background:var(--bg);border-radius:14px;padding:14px;}.stat .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;}.stat .l{font-size:12px;color:var(--text-soft);margin-top:2px;}
@@ -270,7 +277,8 @@ const SB_SESSION_KEY=PREFIX+"sb_session";
 const SB_STATE_KEY=PREFIX+"state";
 const SB_TIMEOUT=15000;
 let sbUser=null;        // {id,email}
-let sbSession=null;     // {access_token,refresh_token,expires_at(ms),user_id,email}
+let sbSession=null;
+let expSortDir="desc",shSortDir="desc"; // 账单排序方向：desc=晚→早，asc=早→晚     // {access_token,refresh_token,expires_at(ms),user_id,email}
 
 /* 业务键：排除“会话”与“界面状态”，避免污染云端、跨端串味 */
 function bizKeys(){
@@ -564,7 +572,7 @@ function handleAction(a,arg){
   if(a==="editTag"){const s=load(KEYS.settings,{});const v=prompt("修改我的标签（显示在顶栏）",s.tag||"我的生活工作台");if(v!=null){s.tag=v;save(KEYS.settings,s);applySettings();}return;}
   if(a==="sub"){current=arg;render();return;}
   if(a.startsWith("fit")||a.startsWith("vid"))return handleFit(a,arg);
-  if(a.startsWith("sal"))return handleSal(a,arg);
+  if(a.startsWith("sal")||a.startsWith("sa"))return handleSal(a,arg);
   if(a.startsWith("hr"))return handleHours(a,arg);
   if(a.startsWith("sch"))return handleSchedule(a,arg);
   if(a.startsWith("exp"))return handleExpense(a,arg);
@@ -632,6 +640,33 @@ const SAL_CONFIG={
 function salCurCfg(){return SAL_CONFIG[current]||SAL_CONFIG.sal_chen;}
 function salData(){return load(salCurCfg().key,[]);}
 function salCompute(v,cfg){let g=0,d=0;cfg.income.forEach(k=>{v[k]=Number(v[k])||0;g+=v[k];});cfg.expense.forEach(k=>{v[k]=Number(v[k])||0;d+=v[k];});v.gross=g;v.net=g-d;return v;}
+function salAllocKey(){return salCurCfg().key+"_alloc";}
+function salAllocData(){
+  let arr=load(salAllocKey(),null);
+  if(arr===null){arr=[{id:uid(),name:"交通",amount:0},{id:uid(),name:"生活",amount:0},{id:uid(),name:"储蓄",amount:0},{id:uid(),name:"应急金",amount:0}];save(salAllocKey(),arr);}
+  return arr;
+}
+function salAllocBlock(net){
+  const arr=salAllocData();
+  const total=arr.reduce((s,x)=>s+(Number(x.amount)||0),0);
+  const remain=(Number(net)||0)-total;
+  const rows=arr.map(function(x){
+    return '<tr><td style="min-width:96px"><input class="fld sa-name" data-said="'+x.id+'" value="'+escapeHtml(x.name)+'" style="width:100%"></td>'
+      +'<td class="num"><input class="fld sa-amt num" data-said="'+x.id+'" type="number" step="0.01" value="'+(Number(x.amount)||0)+'" style="width:120px;text-align:right"></td>'
+      +'<td class="row" style="justify-content:flex-end"><button class="btn warn sm" data-action="sadel" data-arg="'+x.id+'">删</button></td></tr>';
+  }).join("");
+  return '<div style="margin-top:18px;border-top:1px dashed var(--line);padding-top:14px">'
+    +'<div class="spread"><h3 style="font-size:16px">💼 工资分配（预设：交通 / 生活 / 储蓄 / 应急金）</h3>'
+    +'<button class="btn sm" data-action="saadd">＋ 新增项目</button></div>'
+    +'<div class="stats" style="margin-top:10px">'
+    +'<div class="stat"><div class="v">'+money(total)+'</div><div class="l">已分配合计</div></div>'
+    +'<div class="stat"><div class="v" style="color:'+(remain>=0?'var(--success)':'var(--warn)')+'">'+money(remain)+'</div><div class="l">剩余可分配</div></div>'
+    +'<div class="stat"><div class="v">'+arr.length+'</div><div class="l">分配项目数</div></div>'
+    +'</div>'
+    +'<table class="alloc" style="margin-top:12px"><thead><tr><th>分配项目</th><th class="num">金额(元)</th><th></th></tr></thead><tbody>'
+    +(rows||'<tr><td colspan="3" class="empty">暂无，点「＋ 新增项目」添加</td></tr>')
+    +'</tbody></table></div>';
+}
 function renderSalary(){
   const cfg=salCurCfg();
   const all=salData().slice().sort((a,b)=>a.month<b.month?-1:1);
@@ -651,6 +686,7 @@ function renderSalary(){
       <div class="stat"><div class="v">${cur.length}</div><div class="l">本月条数</div></div>
     </div>
     ${cur.length?`<table style="margin-top:14px"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`:`<div class="empty">该月暂无薪资记录，点「新增」记一笔 💰</div>`}
+    ${salAllocBlock(curNet)}
     <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="salyear">📅 全年汇总</button><button class="btn ghost sm" data-action="salstat">📊 收入/扣款统计</button><button class="btn ghost sm" data-action="salavg">📈 平均月收入</button><button class="btn ghost sm" data-action="salcmp">🔁 相邻月对比</button><button class="btn ghost sm" data-action="salexport">⬇️ 导出台账CSV</button></div>
   </div>`;
 }
@@ -679,8 +715,14 @@ function handleSal(a,arg){
   if(a==="salexport"){const all=salData();const head=["月份","日期",...cfg.income,...cfg.expense,"应发","到手","备注"];
     const rows=all.map(r=>[r.month,r.date,...cfg.income.map(k=>r[k]),...cfg.expense.map(k=>r[k]),r.gross,r.net,r.note]);
     download("薪资台账_"+cfg.title.replace(/[^一-龥a-zA-Z0-9]/g,"")+"_"+today()+".csv",toCSV(head,rows),"text/csv;charset=utf-8");toast("已导出CSV","ok");return;}
+  if(a==="saadd"){openForm({title:"新增分配项目",submitText:"添加",fields:[{key:"name",label:"项目名称*（如：教育、旅游）",required:true},{key:"amount",label:"分配金额(元)",type:"number",step:"0.01"}],onSubmit:v=>{const arr=salAllocData();arr.push({id:uid(),name:v.name.trim()||"未命名",amount:Number(v.amount)||0});save(salAllocKey(),arr);toast("已添加项目","ok");render();}});return;}
+  if(a==="sadel"){if(confirm("确定删除该分配项目？")){const arr=salAllocData().filter(x=>x.id!==arg);save(salAllocKey(),arr);toast("已删除");render();}return;}
 }
-document.addEventListener("change",e=>{if(e.target&&e.target.id==="salMonthSel"){salMonth=e.target.value;render();}});
+document.addEventListener("change",e=>{
+  if(e.target&&e.target.id==="salMonthSel"){salMonth=e.target.value;render();}
+  else if(e.target&&e.target.classList.contains("sa-amt")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.amount=Number(e.target.value)||0;save(salAllocKey(),arr);markSaved();render();}}
+  else if(e.target&&e.target.classList.contains("sa-name")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.name=e.target.value.trim()||"未命名";save(salAllocKey(),arr);markSaved();}}
+});
 
 /* ===== 3. 课时记录（月历核心） ===== */
 function hrData(){return load(KEYS.hours,[]);}
@@ -1115,7 +1157,7 @@ function runExpenseCmd(text){
 /* ===== 5. 日常开销（核心） ===== */
 function expData(){return load(KEYS.expense,[]);}
 function renderExpense(){
-  const all=expData().slice().sort((a,b)=>a.date<b.date?1:-1);
+  const all=expData().slice().sort((a,b)=>a.date<b.date?(expSortDir==="asc"?-1:1):(expSortDir==="asc"?1:-1));
   const thisMonth=all.filter(r=>r.date.slice(0,7)===today().slice(0,7));
   const inM=thisMonth.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);
   const outM=thisMonth.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
@@ -1134,7 +1176,7 @@ function renderExpense(){
   </div>
   <div class="card"><h3>📋 账单 <span class="badge">${all.length} 条</span></h3>
     ${all.length?`<table><thead><tr><th>日期</th><th>收支</th><th>分类</th><th class="num">金额</th><th>备注</th><th></th></tr></thead><tbody>${all.map(r=>`<tr><td>${r.date}</td><td><span class="pill ${r.type==="收入"?"s":"w"}">${r.type}</span></td><td>${escapeHtml(r.category||"")}</td><td class="num">${r.type==="收入"?"+":"-"}${fmt2(r.amount)}</td><td class="muted">${escapeHtml(r.note||"")}</td><td class="row" style="justify-content:flex-end"><button class="btn line sm" data-action="expadd" data-arg="${r.id}">改</button><button class="btn warn sm" data-action="expdel" data-arg="${r.id}">删</button></td></tr>`).join("")}</tbody></table>`:`<div class="empty">还没有账单，点「记账」开始 🧾</div>`}
-    <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="expmonth">📊 本月分类汇总</button><button class="btn ghost sm" data-action="expexport">⬇️ 导出CSV</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="expsorttoggle">${expSortDir==="asc"?"⬆️ 早→晚":"⬇️ 晚→早"}</button><button class="btn ghost sm" data-action="expmonth">📊 本月分类汇总</button><button class="btn ghost sm" data-action="expexport">⬇️ 导出CSV</button></div>
   </div>`;
 }
 function handleExpense(a,arg){
@@ -1145,6 +1187,7 @@ function handleExpense(a,arg){
       fields:[{key:"date",label:"日期",type:"date",required:true},{key:"type",label:"收支",type:"select",options:EXP_TYPE.map(t=>({value:t,label:t})),required:true},{key:"category",label:"分类",type:"select",options:EXP_CATS.map(c=>({value:c,label:c})),required:true},{key:"amount",label:"金额",type:"number",step:"0.01",required:true},{key:"note",label:"备注",type:"textarea"}],
       onSubmit:v=>{if(ed)Object.assign(ed,v);else all.push(Object.assign({id:uid()},v));save(KEYS.expense,all);toast("已记账","ok");render();}});return;}
   if(a==="expdel"){if(confirm("确定删除？")){save(KEYS.expense,expData().filter(r=>r.id!==arg));toast("已删除");render();}return;}
+  if(a==="expsorttoggle"){expSortDir=expSortDir==="asc"?"desc":"asc";render();return;}
   if(a==="expmonth"){const all=expData().filter(r=>r.date.slice(0,7)===today().slice(0,7));const cat={};all.forEach(r=>{cat[r.category||"未分类"]=(cat[r.category||"未分类"]||0)+(Number(r.amount)||0);});
     openView("本月分类汇总",`<table><thead><tr><th>分类</th><th class="num">金额</th></tr></thead><tbody>${Object.keys(cat).map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt2(cat[k])}</td></tr>`).join("")||'<tr><td colspan="2" class="empty">暂无</td></tr>'}</tbody></table>`);return;}
   if(a==="expexport"){const all=expData();download("日常开销_"+today()+".csv",toCSV(["日期","收支","分类","金额","备注"],all.map(r=>[r.date,r.type,r.category,r.amount,r.note])),"text/csv;charset=utf-8");toast("已导出CSV","ok");return;}
@@ -1153,7 +1196,7 @@ function handleExpense(a,arg){
 /* ===== 5b. 共同开销（简化记账） ===== */
 function expSharedData(){return load(KEYS.expense_shared,[]);}
 function renderSharedExpense(){
-  const all=expSharedData().slice().sort((a,b)=>a.date<b.date?1:-1);
+  const all=expSharedData().slice().sort((a,b)=>a.date<b.date?(shSortDir==="asc"?-1:1):(shSortDir==="asc"?1:-1));
   const thisMonth=all.filter(r=>r.date.slice(0,7)===today().slice(0,7));
   const inM=thisMonth.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);
   const outM=thisMonth.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
@@ -1164,7 +1207,7 @@ function renderSharedExpense(){
   </div>
   <div class="card"><h3>📋 账单 <span class="badge">${all.length} 条</span></h3>
     ${all.length?`<table><thead><tr><th>日期</th><th>收支</th><th>分类</th><th class="num">金额</th><th>备注</th><th></th></tr></thead><tbody>${all.map(r=>`<tr><td>${r.date}</td><td><span class="pill ${r.type==="收入"?"s":"w"}">${r.type}</span></td><td>${escapeHtml(r.category||"")}</td><td class="num">${r.type==="收入"?"+":"-"}${fmt2(r.amount)}</td><td class="muted">${escapeHtml(r.note||"")}</td><td class="row" style="justify-content:flex-end"><button class="btn line sm" data-action="shadd" data-arg="${r.id}">改</button><button class="btn warn sm" data-action="shdel" data-arg="${r.id}">删</button></td></tr>`).join("")}</tbody></table>`:`<div class="empty">还没有共同开销记录，点「记账」开始 🤝</div>`}
-    <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="shmonth">📊 本月汇总</button><button class="btn ghost sm" data-action="shbalance">👀 看结余</button><button class="btn ghost sm" data-action="shexport">⬇️ 导出CSV</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="shsorttoggle">${shSortDir==="asc"?"⬆️ 早→晚":"⬇️ 晚→早"}</button><button class="btn ghost sm" data-action="shmonth">📊 本月汇总</button><button class="btn ghost sm" data-action="shbalance">👀 看结余</button><button class="btn ghost sm" data-action="shexport">⬇️ 导出CSV</button></div>
   </div>`;
 }
 function handleSharedExpense(a,arg){
@@ -1173,6 +1216,7 @@ function handleSharedExpense(a,arg){
       fields:[{key:"date",label:"日期",type:"date",required:true},{key:"type",label:"收支",type:"select",options:EXP_TYPE.map(t=>({value:t,label:t})),required:true},{key:"category",label:"分类",type:"select",options:EXP_CATS.map(c=>({value:c,label:c})),required:true},{key:"amount",label:"金额",type:"number",step:"0.01",required:true},{key:"note",label:"备注",type:"textarea"}],
       onSubmit:v=>{if(ed)Object.assign(ed,v);else all.push(Object.assign({id:uid()},v));save(KEYS.expense_shared,all);toast("已记账","ok");render();}});return;}
   if(a==="shdel"){if(confirm("确定删除？")){save(KEYS.expense_shared,expSharedData().filter(r=>r.id!==arg));toast("已删除");render();}return;}
+  if(a==="shsorttoggle"){shSortDir=shSortDir==="asc"?"desc":"asc";render();return;}
   if(a==="shmonth"){const all=expSharedData().filter(r=>r.date.slice(0,7)===today().slice(0,7));const cat={};all.forEach(r=>{cat[r.category||"未分类"]=(cat[r.category||"未分类"]||0)+(Number(r.amount)||0);});
     openView("共同开销 · 本月汇总",`<table><thead><tr><th>分类</th><th class="num">金额</th></tr></thead><tbody>${Object.keys(cat).map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt2(cat[k])}</td></tr>`).join("")||'<tr><td colspan="2" class="empty">暂无</td></tr>'}</tbody></table>`);return;}
   if(a==="shbalance"){const all=expSharedData();const tm=all.filter(r=>r.date.slice(0,7)===today().slice(0,7));const inc=all.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);const out=all.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);const inM=tm.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);const outM=tm.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
