@@ -634,10 +634,24 @@ function handleFit(a,arg){
 
 /* ===== 2. 薪资条（陈老师 / 林工 双账户） ===== */
 const SAL_CONFIG={
-  sal_chen:{key:PREFIX+"salary_chen",title:"👩‍🏫 陈老师薪资条",income:["基本工资","课时补贴","住房补贴","节日补贴","绩效"],expense:["五险一金","餐费","住宿费"]},
-  sal_lin:{key:PREFIX+"salary_lin",title:"👷 林工薪资条",income:["基本工资","岗位工资","绩效","餐贴","满勤","加班","岗位津贴"],expense:["五险一金","餐费","其他扣款"]}
+  sal_chen:{key:PREFIX+"salary_chen",title:"👩‍🏫 陈老师薪资条",income:["基本工资","课时补贴","住房补贴","节日补贴","绩效"],expense:["五险一金","餐费","住宿费","工费"]},
+  sal_lin:{key:PREFIX+"salary_lin",title:"👷 林工薪资条",income:["基本工资","岗位工资","绩效","餐贴","满勤","加班","岗位津贴"],expense:["五险一金","餐费","其他扣款","工费"]}
 };
-function salCurCfg(){return SAL_CONFIG[current]||SAL_CONFIG.sal_chen;}
+function salCurCfg(){
+  const base=SAL_CONFIG[current]||SAL_CONFIG.sal_chen;
+  const t=load(base.key+"_types",null)||{income:[],expense:[]};
+  return {key:base.key,title:base.title,income:[...base.income,...(t.income||[])],expense:[...base.expense,...(t.expense||[])]};
+}
+function salTypeMgrHtml(cfg){
+  const base=SAL_CONFIG[current]||SAL_CONFIG.sal_chen;
+  const t=load(cfg.key+"_types",null)||{income:[],expense:[]};
+  const sec=(k,label)=>{
+    const defs=(base[k]||[]).map(n=>`<span class="pill o">${escapeHtml(n)}</span>`).join(" ");
+    const cust=(t[k]||[]).map(n=>`<span class="pill p">${escapeHtml(n)} <button class="btn warn sm" data-action="saltypedel" data-arg="${k}~${encodeURIComponent(n)}" style="margin-left:5px;padding:1px 7px;font-size:11px">✕</button></span>`).join(" ");
+    return `<div style="margin:10px 0"><div style="font-weight:600;margin-bottom:6px">${label}</div><div class="row">${defs}${cust}</div></div>`;
+  };
+  return `<p class="muted">灰色为系统预设（不可删除），粉色为你自定义的类型，点 ✕ 可删除。</p>`+sec("income","收入类型")+sec("expense","扣除类型");
+}
 function salData(){return load(salCurCfg().key,[]);}
 function salCompute(v,cfg){let g=0,d=0;cfg.income.forEach(k=>{v[k]=Number(v[k])||0;g+=v[k];});cfg.expense.forEach(k=>{v[k]=Number(v[k])||0;d+=v[k];});v.gross=g;v.net=g-d;return v;}
 function salAllocKey(){return salCurCfg().key+"_alloc";}
@@ -684,7 +698,7 @@ function renderSalary(){
   return `
   <div class="card"><div class="spread"><h3>${cfg.title}</h3>
     <div class="row"><select id="salMonthSel" class="btn line" style="padding:8px 12px">${months.map(m=>`<option value="${m}" ${m===salMonth?"selected":""}>${m}</option>`).join("")||'<option>暂无</option>'}</select>
-    <button class="btn sm" data-action="saladd">＋ 新增</button></div></div>
+    <button class="btn sm" data-action="saladd">＋ 新增</button><button class="btn ghost sm" data-action="saltype">＋ 类型</button><button class="btn ghost sm" data-action="saltypemgr">⚙ 类型</button></div></div>
     <div class="stats">
       <div class="stat"><div class="v">${money(curGross)}</div><div class="l">本月应发合计</div></div>
       <div class="stat"><div class="v" style="color:var(--success)">${money(curNet)}</div><div class="l">本月到手合计</div></div>
@@ -718,10 +732,13 @@ function handleSal(a,arg){
   if(a==="salcmp"){const all=salData().slice().sort((a,b)=>a.month<b.month?-1:1);let html="";for(let i=1;i<all.length;i++){const p=all[i-1],c=all[i];const dn=(Number(c.net)||0)-(Number(p.net)||0);html+=`<tr><td>${p.month}→${c.month}</td><td class="num">${fmt2(p.net)}</td><td class="num">${fmt2(c.net)}</td><td class="num" style="color:${dn>=0?'var(--success)':'var(--warn)'}">${dn>=0?'+':''}${fmt2(dn)}</td></tr>`;}
     openView("相邻月份薪资对比 · "+cfg.title,`<table><thead><tr><th>区间</th><th class="num">上月到手</th><th class="num">本月到手</th><th class="num">差异</th></tr></thead><tbody>${html||'<tr><td colspan="4" class="empty">至少需要两个月的记录</td></tr>'}</tbody></table>`);return;}
   if(a==="salexport"){const all=salData();const head=["月份","日期",...cfg.income,...cfg.expense,"应发","到手","备注"];
-    const rows=all.map(r=>[r.month,r.date,...cfg.income.map(k=>r[k]),...cfg.expense.map(k=>r[k]),r.gross,r.net,r.note]);
+    const rows=all.map(r=>[r.month,r.date,...cfg.income.map(k=>r[k]==null?"":r[k]),...cfg.expense.map(k=>r[k]==null?"":r[k]),r.gross,r.net,r.note]);
     download("薪资台账_"+cfg.title.replace(/[^一-龥a-zA-Z0-9]/g,"")+"_"+today()+".csv",toCSV(head,rows),"text/csv;charset=utf-8");toast("已导出CSV","ok");return;}
   if(a==="saadd"){openForm({title:"新增分配项目",submitText:"添加",fields:[{key:"name",label:"项目名称*（如：教育、旅游）",required:true},{key:"amount",label:"分配金额(元)",type:"number",step:"0.01"}],onSubmit:v=>{const arr=salAllocData();arr.push({id:uid(),name:v.name.trim()||"未命名",amount:Number(v.amount)||0,left:0});save(salAllocKey(),arr);toast("已添加项目","ok");render();}});return;}
   if(a==="sadel"){if(confirm("确定删除该分配项目？")){const arr=salAllocData().filter(x=>x.id!==arg);save(salAllocKey(),arr);toast("已删除");render();}return;}
+  if(a==="saltype"){openForm({title:"添加收入 / 扣除类型",submitText:"添加",fields:[{key:"kind",label:"类别*",type:"select",options:[{value:"income",label:"收入"},{value:"expense",label:"扣除"}],required:true},{key:"name",label:"类型名称*（如：工费、奖金、高温补贴、报销）",required:true}],onSubmit:v=>{const name=(v.name||"").trim();if(!name){toast("请输入类型名称","");return;}const k=v.kind==="expense"?"expense":"income";if(cfg[k].includes(name)){toast("该类型已存在","");return;}const t=load(cfg.key+"_types",null)||{income:[],expense:[]};t[k]=t[k]||[];t[k].push(name);save(cfg.key+"_types",t);toast("已添加类型："+name,"ok");render();}});return;}
+  if(a==="saltypemgr"){openView("类型管理 · "+cfg.title,salTypeMgrHtml(cfg));return;}
+  if(a==="saltypedel"){const i=arg.indexOf("~");if(i<0)return;const k=arg.slice(0,i),name=decodeURIComponent(arg.slice(i+1));const t=load(cfg.key+"_types",null)||{income:[],expense:[]};t[k]=(t[k]||[]).filter(n=>n!==name);save(cfg.key+"_types",t);toast("已删除类型："+name);openView("类型管理 · "+cfg.title,salTypeMgrHtml(cfg));return;}
 }
 document.addEventListener("change",e=>{
   if(e.target&&e.target.id==="salMonthSel"){salMonth=e.target.value;render();}
