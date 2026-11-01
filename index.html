@@ -536,7 +536,7 @@ function subNavBar(){
   return "";
 }
 document.addEventListener("click",e=>{
-  const sec=e.target.closest("[data-sec]");if(sec){let id=sec.dataset.sec;const s=SECTIONS.find(x=>x.id===id);if(s&&s.sub&&!s.sub.some(x=>x.id===current))id=s.sub[0].id;current=id;$("#sidebar").classList.remove("show");$("#drawerMask").classList.remove("show");render();return;}
+  const sec=e.target.closest("[data-sec]");if(sec){let id=sec.dataset.sec;const s=SECTIONS.find(x=>x.id===id);if(s&&s.sub&&!s.sub.some(x=>x.id===current))id=s.sub[0].id;current=id;$("#sidebar").classList.remove("show");$("#drawerMask").classList.remove("show");render(true);return;}
   const act=e.target.closest("[data-action]");if(act){handleAction(act.dataset.action,act.dataset.arg);return;}
 });
 $("#hamb").addEventListener("click",()=>{$("#sidebar").classList.add("show");$("#drawerMask").classList.add("show");});
@@ -545,7 +545,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target&&e.target.i
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target&&e.target.id==="hrChatInput"){e.preventDefault();if(e.target.value.trim())runHoursCmd(e.target.value);}});
 
 /* ===== 路由 ===== */
-function render(){
+function render(scrollTop){
   buildNav();
   const c=$("#content");
   let html="";
@@ -561,7 +561,7 @@ function render(){
   else if(current==="backup")html=renderBackup();
   c.innerHTML=subNavBar()+html;
   saveState();
-  window.scrollTo(0,0);
+  if(scrollTop)window.scrollTo(0,0);
 }
 function handleAction(a,arg){
   if(a==="acsignin"){openAuth();return;}
@@ -569,7 +569,7 @@ function handleAction(a,arg){
   if(a==="acsignup2"){doAuth("up");return;}
   if(a==="acsignout"){sbSignOut().then(()=>toast("已退出，本机数据已清除","ok"));return;}
   if(a==="editTag"){const s=load(KEYS.settings,{});const v=prompt("修改我的标签（显示在顶栏）",s.tag||"我的生活工作台");if(v!=null){s.tag=v;save(KEYS.settings,s);applySettings();}return;}
-  if(a==="sub"){current=arg;render();return;}
+  if(a==="sub"){current=arg;render(true);return;}
   if(a.startsWith("fit")||a.startsWith("vid"))return handleFit(a,arg);
   if(a.startsWith("sal")||a.startsWith("sa"))return handleSal(a,arg);
   if(a.startsWith("hr"))return handleHours(a,arg);
