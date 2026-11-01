@@ -421,7 +421,7 @@ async function sbSignOut(){
   clearSession();
   clearLocalData();
   current="fitness";
-  applySettings();render();
+  applySettings();render();renderAuth();
 }
 /* 启动：从本地恢复会话（过期则续期），已登录则拉取云端 */
 async function sbInit(){
@@ -453,6 +453,7 @@ async function doAuth(mode){
     await sbSignIn(email,pw);
     const ov=document.querySelector(".overlay");if(ov)ov.remove();
     await sbPull();
+    renderAuth();
     toast("登录成功，已同步云端数据 ✓","ok");
   }catch(err){toast((err&&err.message)||"操作失败，请重试","warn");}
 }
