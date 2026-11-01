@@ -643,16 +643,20 @@ function salCompute(v,cfg){let g=0,d=0;cfg.income.forEach(k=>{v[k]=Number(v[k])|
 function salAllocKey(){return salCurCfg().key+"_alloc";}
 function salAllocData(){
   let arr=load(salAllocKey(),null);
-  if(arr===null){arr=[{id:uid(),name:"交通",amount:0},{id:uid(),name:"生活",amount:0},{id:uid(),name:"储蓄",amount:0},{id:uid(),name:"应急金",amount:0}];save(salAllocKey(),arr);}
+  if(arr===null){arr=[{id:uid(),name:"交通",amount:0,left:0},{id:uid(),name:"生活",amount:0,left:0},{id:uid(),name:"储蓄",amount:0,left:0},{id:uid(),name:"应急金",amount:0,left:0}];save(salAllocKey(),arr);}
   return arr;
 }
 function salAllocBlock(net){
   const arr=salAllocData();
   const total=arr.reduce((s,x)=>s+(Number(x.amount)||0),0);
+  const leftTotal=arr.reduce((s,x)=>s+(Number(x.left)||0),0);
   const remain=(Number(net)||0)-total;
   const rows=arr.map(function(x){
-    return '<tr><td style="min-width:96px"><input class="fld sa-name" data-said="'+x.id+'" value="'+escapeHtml(x.name)+'" style="width:100%"></td>'
-      +'<td class="num"><input class="fld sa-amt num" data-said="'+x.id+'" type="number" step="0.01" value="'+(Number(x.amount)||0)+'" style="width:120px;text-align:right"></td>'
+    const amt=Number(x.amount)||0,left=Number(x.left)||0;
+    return '<tr>'
+      +'<td style="min-width:84px"><input class="fld sa-name" data-said="'+x.id+'" value="'+escapeHtml(x.name)+'" style="width:100%"></td>'
+      +'<td class="num"><input class="fld sa-amt num" data-said="'+x.id+'" type="number" step="0.01" value="'+amt+'" style="width:104px;text-align:right"></td>'
+      +'<td class="num"><input class="fld sa-left num" data-said="'+x.id+'" type="number" step="0.01" value="'+left+'" style="width:104px;text-align:right"></td>'
       +'<td class="row" style="justify-content:flex-end"><button class="btn warn sm" data-action="sadel" data-arg="'+x.id+'">删</button></td></tr>';
   }).join("");
   return '<div style="margin-top:18px;border-top:1px dashed var(--line);padding-top:14px">'
@@ -660,11 +664,12 @@ function salAllocBlock(net){
     +'<button class="btn sm" data-action="saadd">＋ 新增项目</button></div>'
     +'<div class="stats" style="margin-top:10px">'
     +'<div class="stat"><div class="v">'+money(total)+'</div><div class="l">已分配合计</div></div>'
-    +'<div class="stat"><div class="v" style="color:'+(remain>=0?'var(--success)':'var(--warn)')+'">'+money(remain)+'</div><div class="l">剩余可分配</div></div>'
+    +'<div class="stat"><div class="v" style="color:'+(leftTotal>=0?'var(--success)':'var(--warn)')+'">'+money(leftTotal)+'</div><div class="l">剩余合计</div></div>'
+    +'<div class="stat"><div class="v" style="color:'+(remain>=0?'var(--success)':'var(--warn)')+'">'+money(remain)+'</div><div class="l">可再分配</div></div>'
     +'<div class="stat"><div class="v">'+arr.length+'</div><div class="l">分配项目数</div></div>'
     +'</div>'
-    +'<table class="alloc" style="margin-top:12px"><thead><tr><th>分配项目</th><th class="num">金额(元)</th><th></th></tr></thead><tbody>'
-    +(rows||'<tr><td colspan="3" class="empty">暂无，点「＋ 新增项目」添加</td></tr>')
+    +'<table class="alloc" style="margin-top:12px"><thead><tr><th>分配项目</th><th class="num">预设金额</th><th class="num">剩余</th><th></th></tr></thead><tbody>'
+    +(rows||'<tr><td colspan="4" class="empty">暂无，点「＋ 新增项目」添加</td></tr>')
     +'</tbody></table></div>';
 }
 function renderSalary(){
@@ -715,12 +720,13 @@ function handleSal(a,arg){
   if(a==="salexport"){const all=salData();const head=["月份","日期",...cfg.income,...cfg.expense,"应发","到手","备注"];
     const rows=all.map(r=>[r.month,r.date,...cfg.income.map(k=>r[k]),...cfg.expense.map(k=>r[k]),r.gross,r.net,r.note]);
     download("薪资台账_"+cfg.title.replace(/[^一-龥a-zA-Z0-9]/g,"")+"_"+today()+".csv",toCSV(head,rows),"text/csv;charset=utf-8");toast("已导出CSV","ok");return;}
-  if(a==="saadd"){openForm({title:"新增分配项目",submitText:"添加",fields:[{key:"name",label:"项目名称*（如：教育、旅游）",required:true},{key:"amount",label:"分配金额(元)",type:"number",step:"0.01"}],onSubmit:v=>{const arr=salAllocData();arr.push({id:uid(),name:v.name.trim()||"未命名",amount:Number(v.amount)||0});save(salAllocKey(),arr);toast("已添加项目","ok");render();}});return;}
+  if(a==="saadd"){openForm({title:"新增分配项目",submitText:"添加",fields:[{key:"name",label:"项目名称*（如：教育、旅游）",required:true},{key:"amount",label:"分配金额(元)",type:"number",step:"0.01"}],onSubmit:v=>{const arr=salAllocData();arr.push({id:uid(),name:v.name.trim()||"未命名",amount:Number(v.amount)||0,left:0});save(salAllocKey(),arr);toast("已添加项目","ok");render();}});return;}
   if(a==="sadel"){if(confirm("确定删除该分配项目？")){const arr=salAllocData().filter(x=>x.id!==arg);save(salAllocKey(),arr);toast("已删除");render();}return;}
 }
 document.addEventListener("change",e=>{
   if(e.target&&e.target.id==="salMonthSel"){salMonth=e.target.value;render();}
   else if(e.target&&e.target.classList.contains("sa-amt")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.amount=Number(e.target.value)||0;save(salAllocKey(),arr);markSaved();render();}}
+  else if(e.target&&e.target.classList.contains("sa-left")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.left=Number(e.target.value)||0;save(salAllocKey(),arr);markSaved();render();}}
   else if(e.target&&e.target.classList.contains("sa-name")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.name=e.target.value.trim()||"未命名";save(salAllocKey(),arr);markSaved();}}
 });
 
