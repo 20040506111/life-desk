@@ -654,10 +654,18 @@ function salTypeMgrHtml(cfg){
 }
 function salData(){return load(salCurCfg().key,[]);}
 function salCompute(v,cfg){let g=0,d=0;cfg.income.forEach(k=>{v[k]=Number(v[k])||0;g+=v[k];});cfg.expense.forEach(k=>{v[k]=Number(v[k])||0;d+=v[k];});v.gross=g;v.net=g-d;return v;}
-function salAllocKey(){return salCurCfg().key+"_alloc";}
+function salAllocKey(){return salCurCfg().key+"_alloc_"+salMonth;}
 function salAllocData(){
   let arr=load(salAllocKey(),null);
-  if(arr===null){arr=[{id:uid(),name:"交通",amount:0,left:0},{id:uid(),name:"生活",amount:0,left:0},{id:uid(),name:"储蓄",amount:0,left:0},{id:uid(),name:"应急金",amount:0,left:0}];save(salAllocKey(),arr);}
+  if(arr===null){
+    // 首次进入该月：优先从旧全局分配键迁移一次，避免丢失历史数据
+    const oldKey=salCurCfg().key+"_alloc";
+    const old=load(oldKey,null);
+    if(Array.isArray(old)&&old.length){arr=old.map(x=>Object.assign({amount:0,left:0},x));save(salAllocKey(),arr);}
+    else {arr=[{id:uid(),name:"交通",amount:0,left:0},{id:uid(),name:"生活",amount:0,left:0},{id:uid(),name:"储蓄",amount:0,left:0},{id:uid(),name:"应急金",amount:0,left:0}];save(salAllocKey(),arr);}
+    // 迁移完成（或已用默认）后清除旧全局键，确保只迁移一次
+    try{localStorage.removeItem(oldKey);if(typeof MEM==="object"&&MEM)delete MEM[oldKey];}catch(e){}
+  }
   return arr;
 }
 function salAllocBlock(net){
@@ -674,7 +682,7 @@ function salAllocBlock(net){
       +'<td class="row" style="justify-content:flex-end"><button class="btn warn sm" data-action="sadel" data-arg="'+x.id+'">删</button></td></tr>';
   }).join("");
   return '<div style="margin-top:18px;border-top:1px dashed var(--line);padding-top:14px">'
-    +'<div class="spread"><h3 style="font-size:16px">💼 工资分配（预设：交通 / 生活 / 储蓄 / 应急金）</h3>'
+    +'<div class="spread"><h3 style="font-size:16px">💼 工资分配 · '+salMonth+'（预设：交通 / 生活 / 储蓄 / 应急金）</h3>'
     +'<button class="btn sm" data-action="saadd">＋ 新增项目</button></div>'
     +'<div class="stats" style="margin-top:10px">'
     +'<div class="stat"><div class="v">'+money(total)+'</div><div class="l">已分配合计</div></div>'
