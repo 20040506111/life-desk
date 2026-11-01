@@ -279,6 +279,7 @@ const SB_TIMEOUT=15000;
 let sbUser=null;        // {id,email}
 let sbSession=null;
 let expSortDir="desc",shSortDir="desc"; // 账单排序方向：desc=晚→早，asc=早→晚     // {access_token,refresh_token,expires_at(ms),user_id,email}
+let expStart=today().slice(0,7)+"-01",expEnd=today(); // 日常开销统计区间（默认本月至今）
 
 /* 业务键：排除“会话”与“界面状态”，避免污染云端、跨端串味 */
 function bizKeys(){
@@ -485,16 +486,14 @@ function openForm(cfg){
     else ctrl=`<input class="fld" data-key="${f.key}" type="${f.type||"text"}" value="${val}" placeholder="${escapeHtml(f.ph||"")}" ${f.step?`step="${f.step}"`:""}>`;
     return `<div class="field"><label>${escapeHtml(f.label)}${f.required?' <span style="color:var(--warn)">*</span>':''}</label>${ctrl}</div>`;
   }).join("");
-  ov.innerHTML=`<div class="sheet"><h3>${escapeHtml(cfg.title)}<button class="close" data-x>×</button></h3>${fields}<div class="actions"><button class="btn line" data-x>取消</button><button class="btn" data-submit>${escapeHtml(cfg.submitText||"保存")}</button></div></div>`;
+  const more=(cfg.moreButtons||[]).map((b,i)=>`<button class="btn ${b.cls||"ghost"} sm" data-more="${i}">${escapeHtml(b.label)}</button>`).join("");
+  ov.innerHTML=`<div class="sheet"><h3>${escapeHtml(cfg.title)}<button class="close" data-x>×</button></h3>${fields}<div class="actions"><button class="btn line" data-x>取消</button>${more}<button class="btn" data-submit>${escapeHtml(cfg.submitText||"保存")}</button></div></div>`;
   document.body.appendChild(ov);
   const close=()=>ov.remove();
+  const collect=()=>{const vals={};let ok=true;ov.querySelectorAll(".fld").forEach(el=>{const k=el.dataset.key;let v=el.value;const req=el.closest(".field").querySelector("label").innerHTML.includes("*");if(el.tagName!=="SELECT"&&el.type!=="number")v=v.trim();if(el.type==="number")v=v===""?0:Number(v);if(req&&v===""){ok=false;el.style.borderColor="var(--warn)";}vals[k]=v;});if(!ok){toast("请填写必填项","warn");return null;}return vals;};
   ov.addEventListener("click",e=>{if(e.target===ov||e.target.hasAttribute("data-x"))close();});
-  ov.querySelector("[data-submit]").addEventListener("click",()=>{
-    const vals={};let ok=true;
-    ov.querySelectorAll(".fld").forEach(el=>{const k=el.dataset.key;let v=el.value;const req=el.closest(".field").querySelector("label").innerHTML.includes("*");if(el.tagName!=="SELECT"&&el.type!=="number")v=v.trim();if(el.type==="number")v=v===""?0:Number(v);if(req&&v===""){ok=false;el.style.borderColor="var(--warn)";}vals[k]=v;});
-    if(!ok){toast("请填写必填项","warn");return;}
-    cfg.onSubmit(vals);close();if(cfg.after)cfg.after();
-  });
+  ov.querySelector("[data-submit]").addEventListener("click",()=>{const vals=collect();if(!vals)return;cfg.onSubmit(vals);close();if(cfg.after)cfg.after();});
+  (cfg.moreButtons||[]).forEach((b,i)=>{const btn=ov.querySelector('[data-more="'+i+'"]');if(!btn)return;btn.addEventListener("click",()=>{const vals=collect();if(!vals)return;cfg.onSubmit(vals);if(b.keepOpen){ov.querySelectorAll(".fld").forEach(el=>{if(el.type==="number"||el.tagName==="TEXTAREA")el.value="";});const f=ov.querySelector('.fld[type="number"]');if(f)f.focus();toast("已记录，可继续记下一笔 ✓","ok");}else{close();}});});
   setTimeout(()=>{const f=ov.querySelector(".fld");if(f)f.focus();},50);
   return ov;
 }
@@ -750,6 +749,8 @@ function handleSal(a,arg){
 }
 document.addEventListener("change",e=>{
   if(e.target&&e.target.id==="salMonthSel"){salMonth=e.target.value;render();}
+  else if(e.target&&e.target.id==="expStart"){expStart=e.target.value||expStart;render();}
+  else if(e.target&&e.target.id==="expEnd"){expEnd=e.target.value||expEnd;render();}
   else if(e.target&&e.target.classList.contains("sa-amt")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.amount=Number(e.target.value)||0;save(salAllocKey(),arr);markSaved();render();}}
   else if(e.target&&e.target.classList.contains("sa-left")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.left=Number(e.target.value)||0;save(salAllocKey(),arr);markSaved();render();}}
   else if(e.target&&e.target.classList.contains("sa-name")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.name=e.target.value.trim()||"未命名";save(salAllocKey(),arr);markSaved();}}
@@ -1189,9 +1190,12 @@ function runExpenseCmd(text){
 function expData(){return load(KEYS.expense,[]);}
 function renderExpense(){
   const all=expData().slice().sort((a,b)=>a.date<b.date?(expSortDir==="asc"?-1:1):(expSortDir==="asc"?1:-1));
-  const thisMonth=all.filter(r=>r.date.slice(0,7)===today().slice(0,7));
-  const inM=thisMonth.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);
-  const outM=thisMonth.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const inRange=all.filter(r=>r.date>=expStart&&r.date<=expEnd);
+  const inM=inRange.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const outM=inRange.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const outRange=all.filter(r=>!(r.date>=expStart&&r.date<=expEnd));
+  const row=r=>`<tr><td>${r.date}</td><td><span class="pill ${r.type==="收入"?"s":"w"}">${r.type}</span></td><td>${escapeHtml(r.category||"")}</td><td class="num">${r.type==="收入"?"+":"-"}${fmt2(r.amount)}</td><td class="muted">${escapeHtml(r.note||"")}</td><td class="row" style="justify-content:flex-end"><button class="btn line sm" data-action="expadd" data-arg="${r.id}">改</button><button class="btn warn sm" data-action="expdel" data-arg="${r.id}">删</button></td></tr>`;
+  const head='<thead><tr><th>日期</th><th>收支</th><th>分类</th><th class="num">金额</th><th>备注</th><th></th></tr></thead>';
   const balance=all.reduce((s,r)=>s+(r.type==="收入"?(Number(r.amount)||0):-(Number(r.amount)||0)),0);
   const chatCard=`
   <div class="card chat">
@@ -1203,10 +1207,21 @@ function renderExpense(){
   return `
   ${chatCard}
   <div class="card"><div class="spread"><h3>💸 日常开销</h3><button class="btn sm" data-action="expadd">＋ 记账</button></div>
-    <div class="stats"><div class="stat"><div class="v" style="color:var(--success)">${money(inM)}</div><div class="l">本月收入</div></div><div class="stat"><div class="v" style="color:var(--warn)">${money(outM)}</div><div class="l">本月支出</div></div><div class="stat"><div class="v">${money(inM-outM)}</div><div class="l">本月结余</div></div><div class="stat"><div class="v">${money(balance)}</div><div class="l">累计结余</div></div></div>
+    <div class="row" style="margin:8px 0 4px;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="muted">📅 统计区间</span>
+      <input type="date" id="expStart" class="fld" value="${expStart}" style="width:auto">
+      <span class="muted">至</span>
+      <input type="date" id="expEnd" class="fld" value="${expEnd}" style="width:auto">
+      <button class="btn sm" data-action="expapply">计算</button>
+      <button class="btn ghost sm" data-action="expthismonth">本月</button>
+    </div>
+    <div class="stats"><div class="stat"><div class="v" style="color:var(--success)">${money(inM)}</div><div class="l">区间收入</div></div><div class="stat"><div class="v" style="color:var(--warn)">${money(outM)}</div><div class="l">区间支出</div></div><div class="stat"><div class="v">${money(inM-outM)}</div><div class="l">区间结余</div></div><div class="stat"><div class="v">${money(balance)}</div><div class="l">累计结余</div></div></div>
   </div>
-  <div class="card"><h3>📋 账单 <span class="badge">${all.length} 条</span></h3>
-    ${all.length?`<table><thead><tr><th>日期</th><th>收支</th><th>分类</th><th class="num">金额</th><th>备注</th><th></th></tr></thead><tbody>${all.map(r=>`<tr><td>${r.date}</td><td><span class="pill ${r.type==="收入"?"s":"w"}">${r.type}</span></td><td>${escapeHtml(r.category||"")}</td><td class="num">${r.type==="收入"?"+":"-"}${fmt2(r.amount)}</td><td class="muted">${escapeHtml(r.note||"")}</td><td class="row" style="justify-content:flex-end"><button class="btn line sm" data-action="expadd" data-arg="${r.id}">改</button><button class="btn warn sm" data-action="expdel" data-arg="${r.id}">删</button></td></tr>`).join("")}</tbody></table>`:`<div class="empty">还没有账单，点「记账」开始 🧾</div>`}
+  <div class="card"><h3>📋 账单 <span class="badge">共 ${all.length} 条 · 区间内 ${inRange.length} 条</span></h3>
+    ${all.length?`
+    ${inRange.length?`<table>${head}<tbody>${inRange.map(row).join("")}</tbody></table>`:`<div class="empty">📭 统计区间内暂无账单</div>`}
+    ${outRange.length?`<details class="fold" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:6px"><summary style="cursor:pointer;color:var(--muted);font-size:14px;padding:4px 0">📦 区间外账单（${outRange.length} 条 · 点击展开）</summary><table style="margin-top:6px">${head}<tbody>${outRange.map(row).join("")}</tbody></table></details>`:""}
+    `:`<div class="empty">还没有账单，点「记账」开始 🧾</div>`}
     <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="expsorttoggle">${expSortDir==="asc"?"⬆️ 早→晚":"⬇️ 晚→早"}</button><button class="btn ghost sm" data-action="expmonth">📊 本月分类汇总</button><button class="btn ghost sm" data-action="expexport">⬇️ 导出CSV</button></div>
   </div>`;
 }
@@ -1214,11 +1229,13 @@ function handleExpense(a,arg){
   if(a==="expsend"){const inp=$("#expChatInput");if(inp&&inp.value.trim())runExpenseCmd(inp.value);return;}
   if(a==="expquick"){const v=arg||"";if(v.startsWith("FILL:")){const inp=$("#expChatInput");if(inp){inp.value=v.slice(5);inp.focus();}return;}if(v.startsWith("RUN:")){runExpenseCmd(v.slice(4));return;}return;}
   if(a==="expadd"){const all=expData();const ed=arg?all.find(r=>r.id===arg):null;
-    openForm({title:ed?"修改账单":"记一笔账",submitText:ed?"保存":"保存",values:ed||{date:today(),type:"支出",category:"餐饮"},
+    openForm({title:ed?"修改账单":"记一笔账",submitText:ed?"保存":"保存",moreButtons:ed?undefined:[{label:"＋ 再记一笔",keepOpen:true}],values:ed||{date:today(),type:"支出",category:"餐饮"},
       fields:[{key:"date",label:"日期",type:"date",required:true},{key:"type",label:"收支",type:"select",options:EXP_TYPE.map(t=>({value:t,label:t})),required:true},{key:"category",label:"分类",type:"select",options:EXP_CATS.map(c=>({value:c,label:c})),required:true},{key:"amount",label:"金额",type:"number",step:"0.01",required:true},{key:"note",label:"备注",type:"textarea"}],
       onSubmit:v=>{if(ed)Object.assign(ed,v);else all.push(Object.assign({id:uid()},v));save(KEYS.expense,all);toast("已记账","ok");render();}});return;}
   if(a==="expdel"){if(confirm("确定删除？")){save(KEYS.expense,expData().filter(r=>r.id!==arg));toast("已删除");render();}return;}
   if(a==="expsorttoggle"){expSortDir=expSortDir==="asc"?"desc":"asc";render();return;}
+  if(a==="expapply"){const s=$("#expStart"),e=$("#expEnd");if(s&&s.value)expStart=s.value;if(e&&e.value)expEnd=e.value;render();return;}
+  if(a==="expthismonth"){expStart=today().slice(0,7)+"-01";expEnd=today();render();return;}
   if(a==="expmonth"){const all=expData().filter(r=>r.date.slice(0,7)===today().slice(0,7));const cat={};all.forEach(r=>{cat[r.category||"未分类"]=(cat[r.category||"未分类"]||0)+(Number(r.amount)||0);});
     openView("本月分类汇总",`<table><thead><tr><th>分类</th><th class="num">金额</th></tr></thead><tbody>${Object.keys(cat).map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt2(cat[k])}</td></tr>`).join("")||'<tr><td colspan="2" class="empty">暂无</td></tr>'}</tbody></table>`);return;}
   if(a==="expexport"){const all=expData();download("日常开销_"+today()+".csv",toCSV(["日期","收支","分类","金额","备注"],all.map(r=>[r.date,r.type,r.category,r.amount,r.note])),"text/csv;charset=utf-8");toast("已导出CSV","ok");return;}
@@ -1243,7 +1260,7 @@ function renderSharedExpense(){
 }
 function handleSharedExpense(a,arg){
   if(a==="shadd"){const all=expSharedData();const ed=arg?all.find(r=>r.id===arg):null;
-    openForm({title:ed?"修改共同开销":"记一笔共同开销",submitText:ed?"保存":"保存",values:ed||{date:today(),type:"支出",category:"餐饮"},
+    openForm({title:ed?"修改共同开销":"记一笔共同开销",submitText:ed?"保存":"保存",moreButtons:ed?undefined:[{label:"＋ 再记一笔",keepOpen:true}],values:ed||{date:today(),type:"支出",category:"餐饮"},
       fields:[{key:"date",label:"日期",type:"date",required:true},{key:"type",label:"收支",type:"select",options:EXP_TYPE.map(t=>({value:t,label:t})),required:true},{key:"category",label:"分类",type:"select",options:EXP_CATS.map(c=>({value:c,label:c})),required:true},{key:"amount",label:"金额",type:"number",step:"0.01",required:true},{key:"note",label:"备注",type:"textarea"}],
       onSubmit:v=>{if(ed)Object.assign(ed,v);else all.push(Object.assign({id:uid()},v));save(KEYS.expense_shared,all);toast("已记账","ok");render();}});return;}
   if(a==="shdel"){if(confirm("确定删除？")){save(KEYS.expense_shared,expSharedData().filter(r=>r.id!==arg));toast("已删除");render();}return;}
