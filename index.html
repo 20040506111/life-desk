@@ -230,6 +230,16 @@ table.schtab td.sch-empty:hover{box-shadow:none;transform:none;}
 .goalcard .grow{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
 .goalcard .grow .gn{font-weight:700;font-size:15px;}
 .goalcard .grow .gd{font-size:12px;color:var(--text-soft);}
+
+.cp-rec-item{display:grid;grid-template-columns:auto minmax(70px,1fr) auto minmax(90px,1.3fr) auto;gap:12px;align-items:start;border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px;background:transparent}
+.cp-rec-item .c-date{white-space:nowrap;color:var(--muted,#8a8a8a);align-self:center}
+.cp-rec-item .c-event{font-weight:600;word-break:break-word;align-self:center}
+.cp-rec-item .c-photo{align-self:center}
+.cp-rec-item .c-photo img{width:52px;height:52px;object-fit:cover;border-radius:8px;display:block}
+.cp-rec-item .c-photo.muted{color:var(--muted,#8a8a8a)}
+.cp-rec-item .c-note{word-break:break-word;white-space:pre-wrap;line-height:1.5;align-self:center;color:var(--muted,#8a8a8a)}
+.cp-rec-item .c-del{align-self:center;justify-self:end}
+@media(max-width:600px){.cp-rec-item{grid-template-columns:1fr auto;gap:6px 10px}.cp-rec-item .c-date{grid-column:1}.cp-rec-item .c-del{grid-column:2;grid-row:1}.cp-rec-item .c-event{grid-column:1 / -1}.cp-rec-item .c-photo{grid-column:1}.cp-rec-item .c-note{grid-column:1 / -1}}
 </style>
 </head>
 <body>
@@ -280,6 +290,7 @@ let sbUser=null;        // {id,email}
 let sbSession=null;
 let expSortDir="desc",shSortDir="desc"; // 账单排序方向：desc=晚→早，asc=早→晚     // {access_token,refresh_token,expires_at(ms),user_id,email}
 let expStart=today().slice(0,7)+"-01",expEnd=today(); // 日常开销统计区间（默认本月至今）
+let shStart=today().slice(0,7)+"-01",shEnd=today(); // 共同开销统计区间（默认本月至今）
 
 /* 业务键：排除“会话”与“界面状态”，避免污染云端、跨端串味 */
 function bizKeys(){
@@ -483,6 +494,7 @@ function openForm(cfg){
     let ctrl="";const val=escapeHtml(cfg.values&&cfg.values[f.key]!=null?cfg.values[f.key]:"");
     if(f.type==="textarea")ctrl=`<textarea class="fld" data-key="${f.key}" placeholder="${escapeHtml(f.ph||"")}">${val}</textarea>`;
     else if(f.type==="select")ctrl=`<select class="fld" data-key="${f.key}">`+(f.options||[]).map(o=>{const v=typeof o==="object"?o.value:o;const l=typeof o==="object"?o.label:o;return `<option value="${escapeHtml(v)}" ${val===String(v)?"selected":""}>${escapeHtml(l)}</option>`;}).join("")+`</select>`;
+    else if(f.type==="file")ctrl=`<input class="fld" data-key="${f.key}" type="file" accept="${escapeHtml(f.accept||"image/*")}">`;
     else ctrl=`<input class="fld" data-key="${f.key}" type="${f.type||"text"}" value="${val}" placeholder="${escapeHtml(f.ph||"")}" ${f.step?`step="${f.step}"`:""}>`;
     return `<div class="field"><label>${escapeHtml(f.label)}${f.required?' <span style="color:var(--warn)">*</span>':''}</label>${ctrl}</div>`;
   }).join("");
@@ -490,10 +502,10 @@ function openForm(cfg){
   ov.innerHTML=`<div class="sheet"><h3>${escapeHtml(cfg.title)}<button class="close" data-x>×</button></h3>${fields}<div class="actions"><button class="btn line" data-x>取消</button>${more}<button class="btn" data-submit>${escapeHtml(cfg.submitText||"保存")}</button></div></div>`;
   document.body.appendChild(ov);
   const close=()=>ov.remove();
-  const collect=()=>{const vals={};let ok=true;ov.querySelectorAll(".fld").forEach(el=>{const k=el.dataset.key;let v=el.value;const req=el.closest(".field").querySelector("label").innerHTML.includes("*");if(el.tagName!=="SELECT"&&el.type!=="number")v=v.trim();if(el.type==="number")v=v===""?0:Number(v);if(req&&v===""){ok=false;el.style.borderColor="var(--warn)";}vals[k]=v;});if(!ok){toast("请填写必填项","warn");return null;}return vals;};
+  const collect=async()=>{const vals={};let ok=true;const fileReads=[];ov.querySelectorAll(".fld").forEach(el=>{const k=el.dataset.key;if(el.type==="file"){const f=el.files[0];if(f)fileReads.push(new Promise(res=>{const rd=new FileReader();rd.onload=()=>res([k,rd.result]);rd.readAsDataURL(f);}));else vals[k]="";return;}let v=el.value;const req=el.closest(".field").querySelector("label").innerHTML.includes("*");if(el.tagName!=="SELECT"&&el.type!=="number")v=v.trim();if(el.type==="number")v=v===""?0:Number(v);if(req&&v===""){ok=false;el.style.borderColor="var(--warn)";}vals[k]=v;});if(!ok){toast("请填写必填项","warn");return null;}if(fileReads.length){const pr=await Promise.all(fileReads);pr.forEach(p=>vals[p[0]]=p[1]);}return vals;};
   ov.addEventListener("click",e=>{if(e.target===ov||e.target.hasAttribute("data-x"))close();});
-  ov.querySelector("[data-submit]").addEventListener("click",()=>{const vals=collect();if(!vals)return;cfg.onSubmit(vals);close();if(cfg.after)cfg.after();});
-  (cfg.moreButtons||[]).forEach((b,i)=>{const btn=ov.querySelector('[data-more="'+i+'"]');if(!btn)return;btn.addEventListener("click",()=>{const vals=collect();if(!vals)return;cfg.onSubmit(vals);if(b.keepOpen){ov.querySelectorAll(".fld").forEach(el=>{if(el.type==="number"||el.tagName==="TEXTAREA")el.value="";});const f=ov.querySelector('.fld[type="number"]');if(f)f.focus();toast("已记录，可继续记下一笔 ✓","ok");}else{close();}});});
+  ov.querySelector("[data-submit]").addEventListener("click",async()=>{const vals=await collect();if(!vals)return;cfg.onSubmit(vals);close();if(cfg.after)cfg.after();});
+  (cfg.moreButtons||[]).forEach((b,i)=>{const btn=ov.querySelector('[data-more="'+i+'"]');if(!btn)return;btn.addEventListener("click",async()=>{const vals=await collect();if(!vals)return;cfg.onSubmit(vals);if(b.keepOpen){ov.querySelectorAll(".fld").forEach(el=>{if(el.type==="number"||el.tagName==="TEXTAREA"||el.type==="file")el.value="";});const f=ov.querySelector('.fld[type="number"]')||ov.querySelector("textarea.fld");if(f)f.focus();toast(b.toast||"已记录，可继续记下一笔 ✓","ok");}else{close();}});});
   setTimeout(()=>{const f=ov.querySelector(".fld");if(f)f.focus();},50);
   return ov;
 }
@@ -520,7 +532,7 @@ const SECTIONS=[
   {id:"calendar",label:"工作日历",ico:"🗓️"},{id:"automation",label:"自动化任务",ico:"⚙️"},
   {id:"backup",label:"数据备份",ico:"💾"}
 ];
-let current="fitness",fitView="all",salMonth=today().slice(0,7),calCursor=new Date(),hrMonth=today().slice(0,7);
+let current="fitness",fitView="all",salMonth=today().slice(0,7),calCursor=new Date(),hrMonth=today().slice(0,7),cpRecordMode=false,cpRecSearch="";
 function buildNav(){
   let html="";
   SECTIONS.forEach(s=>{
@@ -539,6 +551,15 @@ document.addEventListener("click",e=>{
   const sec=e.target.closest("[data-sec]");if(sec){let id=sec.dataset.sec;const s=SECTIONS.find(x=>x.id===id);if(s&&s.sub&&!s.sub.some(x=>x.id===current))id=s.sub[0].id;current=id;$("#sidebar").classList.remove("show");$("#drawerMask").classList.remove("show");render(true);return;}
   const act=e.target.closest("[data-action]");if(act){handleAction(act.dataset.action,act.dataset.arg);return;}
 });
+document.addEventListener("input",e=>{
+  if(e.target&&e.target.id==="cpRecSearch"){cpRecSearch=(e.target.value||"").toLowerCase();applyCpRecSearch();saveState();}
+});
+function applyCpRecSearch(){
+  const box=document.getElementById("cpRecSearch");if(!box)return;
+  const q=(cpRecSearch||"").toLowerCase();
+  document.querySelectorAll(".cp-rec-item").forEach(el=>{const hit=!q||(el.getAttribute("data-search")||"").toLowerCase().indexOf(q)>=0;el.style.display=hit?"":"none";});
+  const wrap=document.querySelector(".cp-rec-wrap");if(wrap)wrap.open=!!q;
+}
 $("#hamb").addEventListener("click",()=>{$("#sidebar").classList.add("show");$("#drawerMask").classList.add("show");});
 $("#drawerMask").addEventListener("click",()=>{$("#sidebar").classList.remove("show");$("#drawerMask").classList.remove("show");});
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target&&e.target.id==="expChatInput"){e.preventDefault();if(e.target.value.trim())runExpenseCmd(e.target.value);}});
@@ -561,6 +582,7 @@ function render(scrollTop){
   else if(current==="backup")html=renderBackup();
   c.innerHTML=subNavBar()+html;
   saveState();
+  if(current==="couple")applyCpRecSearch();
   if(scrollTop)window.scrollTo(0,0);
 }
 function handleAction(a,arg){
@@ -583,8 +605,8 @@ function handleAction(a,arg){
   if(a.startsWith("bk"))return handleBackup(a,arg);
 }
 /* ===== 界面状态记忆（打开即恢复到上次停留的板块/筛选） ===== */
-function saveState(){save(PREFIX+"state",{current:current,fitView:fitView,salMonth:salMonth,hrMonth:hrMonth},true);}
-function loadState(){const s=load(PREFIX+"state",null);if(s&&typeof s==="object"){if(typeof s.current==="string"&&s.current)current=s.current;if(typeof s.fitView==="string")fitView=s.fitView;if(typeof s.salMonth==="string")salMonth=s.salMonth;if(typeof s.hrMonth==="string")hrMonth=s.hrMonth;}}
+function saveState(){save(PREFIX+"state",{current:current,fitView:fitView,salMonth:salMonth,hrMonth:hrMonth,expStart:expStart,expEnd:expEnd,shStart:shStart,shEnd:shEnd,cpRecordMode:cpRecordMode,cpRecSearch:cpRecSearch},true);}
+function loadState(){const s=load(PREFIX+"state",null);if(s&&typeof s==="object"){if(typeof s.current==="string"&&s.current)current=s.current;if(typeof s.fitView==="string")fitView=s.fitView;if(typeof s.salMonth==="string")salMonth=s.salMonth;if(typeof s.hrMonth==="string")hrMonth=s.hrMonth;if(typeof s.expStart==="string")expStart=s.expStart;if(typeof s.expEnd==="string")expEnd=s.expEnd;if(typeof s.shStart==="string")shStart=s.shStart;if(typeof s.shEnd==="string")shEnd=s.shEnd;if(typeof s.cpRecordMode==="boolean")cpRecordMode=s.cpRecordMode;if(typeof s.cpRecSearch==="string")cpRecSearch=s.cpRecSearch;}}
 
 /* ===== 1. 健身 ===== */
 function fitData(){return load(KEYS.fitness,[]);}
@@ -751,6 +773,8 @@ document.addEventListener("change",e=>{
   if(e.target&&e.target.id==="salMonthSel"){salMonth=e.target.value;render();}
   else if(e.target&&e.target.id==="expStart"){expStart=e.target.value||expStart;render();}
   else if(e.target&&e.target.id==="expEnd"){expEnd=e.target.value||expEnd;render();}
+  else if(e.target&&e.target.id==="shStart"){shStart=e.target.value||shStart;render();}
+  else if(e.target&&e.target.id==="shEnd"){shEnd=e.target.value||shEnd;render();}
   else if(e.target&&e.target.classList.contains("sa-amt")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.amount=Number(e.target.value)||0;save(salAllocKey(),arr);markSaved();render();}}
   else if(e.target&&e.target.classList.contains("sa-left")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.left=Number(e.target.value)||0;save(salAllocKey(),arr);markSaved();render();}}
   else if(e.target&&e.target.classList.contains("sa-name")){const id=e.target.dataset.said;const arr=salAllocData();const it=arr.find(x=>x.id===id);if(it){it.name=e.target.value.trim()||"未命名";save(salAllocKey(),arr);markSaved();}}
@@ -1245,16 +1269,30 @@ function handleExpense(a,arg){
 function expSharedData(){return load(KEYS.expense_shared,[]);}
 function renderSharedExpense(){
   const all=expSharedData().slice().sort((a,b)=>a.date<b.date?(shSortDir==="asc"?-1:1):(shSortDir==="asc"?1:-1));
-  const thisMonth=all.filter(r=>r.date.slice(0,7)===today().slice(0,7));
-  const inM=thisMonth.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);
-  const outM=thisMonth.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const inRange=all.filter(r=>r.date>=shStart&&r.date<=shEnd);
+  const inM=inRange.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const outM=inRange.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const outRange=all.filter(r=>!(r.date>=shStart&&r.date<=shEnd));
   const balance=all.reduce((s,r)=>s+(r.type==="收入"?(Number(r.amount)||0):-(Number(r.amount)||0)),0);
+  const row=r=>`<tr><td>${r.date}</td><td><span class="pill ${r.type==="收入"?"s":"w"}">${r.type}</span></td><td>${escapeHtml(r.category||"")}</td><td class="num">${r.type==="收入"?"+":"-"}${fmt2(r.amount)}</td><td class="muted">${escapeHtml(r.note||"")}</td><td class="row" style="justify-content:flex-end"><button class="btn line sm" data-action="shadd" data-arg="${r.id}">改</button><button class="btn warn sm" data-action="shdel" data-arg="${r.id}">删</button></td></tr>`;
+  const head='<thead><tr><th>日期</th><th>收支</th><th>分类</th><th class="num">金额</th><th>备注</th><th></th></tr></thead>';
   return `
   <div class="card"><div class="spread"><h3>🤝 共同开销</h3><button class="btn sm" data-action="shadd">＋ 记账</button></div>
-    <div class="stats"><div class="stat"><div class="v" style="color:var(--success)">${money(inM)}</div><div class="l">本月收入</div></div><div class="stat"><div class="v" style="color:var(--warn)">${money(outM)}</div><div class="l">本月支出</div></div><div class="stat"><div class="v">${money(inM-outM)}</div><div class="l">本月结余</div></div><div class="stat"><div class="v">${money(balance)}</div><div class="l">累计结余</div></div></div>
+    <div class="row" style="margin:8px 0 4px;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="muted">📅 统计区间</span>
+      <input type="date" id="shStart" class="fld" value="${shStart}" style="width:auto">
+      <span class="muted">至</span>
+      <input type="date" id="shEnd" class="fld" value="${shEnd}" style="width:auto">
+      <button class="btn sm" data-action="shapply">计算</button>
+      <button class="btn ghost sm" data-action="shthismonth">本月</button>
+    </div>
+    <div class="stats"><div class="stat"><div class="v" style="color:var(--success)">${money(inM)}</div><div class="l">区间收入</div></div><div class="stat"><div class="v" style="color:var(--warn)">${money(outM)}</div><div class="l">区间支出</div></div><div class="stat"><div class="v">${money(inM-outM)}</div><div class="l">区间结余</div></div><div class="stat"><div class="v">${money(balance)}</div><div class="l">累计结余</div></div></div>
   </div>
-  <div class="card"><h3>📋 账单 <span class="badge">${all.length} 条</span></h3>
-    ${all.length?`<table><thead><tr><th>日期</th><th>收支</th><th>分类</th><th class="num">金额</th><th>备注</th><th></th></tr></thead><tbody>${all.map(r=>`<tr><td>${r.date}</td><td><span class="pill ${r.type==="收入"?"s":"w"}">${r.type}</span></td><td>${escapeHtml(r.category||"")}</td><td class="num">${r.type==="收入"?"+":"-"}${fmt2(r.amount)}</td><td class="muted">${escapeHtml(r.note||"")}</td><td class="row" style="justify-content:flex-end"><button class="btn line sm" data-action="shadd" data-arg="${r.id}">改</button><button class="btn warn sm" data-action="shdel" data-arg="${r.id}">删</button></td></tr>`).join("")}</tbody></table>`:`<div class="empty">还没有共同开销记录，点「记账」开始 🤝</div>`}
+  <div class="card"><h3>📋 账单 <span class="badge">共 ${all.length} 条 · 区间内 ${inRange.length} 条</span></h3>
+    ${all.length?`
+    ${inRange.length?`<table>${head}<tbody>${inRange.map(row).join("")}</tbody></table>`:`<div class="empty">📭 统计区间内暂无账单</div>`}
+    ${outRange.length?`<details class="fold" style="margin-top:10px;border-top:1px dashed var(--line);padding-top:6px"><summary style="cursor:pointer;color:#8a8a9a;font-size:14px;padding:4px 0">📦 区间外账单（${outRange.length} 条 · 点击展开）</summary><table style="margin-top:6px">${head}<tbody>${outRange.map(row).join("")}</tbody></table></details>`:""}
+    `:`<div class="empty">还没有共同开销记录，点「记账」开始 🤝</div>`}
     <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="shsorttoggle">${shSortDir==="asc"?"⬆️ 早→晚":"⬇️ 晚→早"}</button><button class="btn ghost sm" data-action="shmonth">📊 本月汇总</button><button class="btn ghost sm" data-action="shbalance">👀 看结余</button><button class="btn ghost sm" data-action="shexport">⬇️ 导出CSV</button></div>
   </div>`;
 }
@@ -1265,6 +1303,8 @@ function handleSharedExpense(a,arg){
       onSubmit:v=>{if(ed)Object.assign(ed,v);else all.push(Object.assign({id:uid()},v));save(KEYS.expense_shared,all);toast("已记账","ok");render();}});return;}
   if(a==="shdel"){if(confirm("确定删除？")){save(KEYS.expense_shared,expSharedData().filter(r=>r.id!==arg));toast("已删除");render();}return;}
   if(a==="shsorttoggle"){shSortDir=shSortDir==="asc"?"desc":"asc";render();return;}
+  if(a==="shapply"){const s=$("#shStart"),e=$("#shEnd");if(s&&s.value)shStart=s.value;if(e&&e.value)shEnd=e.value;render();return;}
+  if(a==="shthismonth"){shStart=today().slice(0,7)+"-01";shEnd=today();render();return;}
   if(a==="shmonth"){const all=expSharedData().filter(r=>r.date.slice(0,7)===today().slice(0,7));const cat={};all.forEach(r=>{cat[r.category||"未分类"]=(cat[r.category||"未分类"]||0)+(Number(r.amount)||0);});
     openView("共同开销 · 本月汇总",`<table><thead><tr><th>分类</th><th class="num">金额</th></tr></thead><tbody>${Object.keys(cat).map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt2(cat[k])}</td></tr>`).join("")||'<tr><td colspan="2" class="empty">暂无</td></tr>'}</tbody></table>`);return;}
   if(a==="shbalance"){const all=expSharedData();const tm=all.filter(r=>r.date.slice(0,7)===today().slice(0,7));const inc=all.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);const out=all.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);const inM=tm.filter(r=>r.type==="收入").reduce((s,r)=>s+(Number(r.amount)||0),0);const outM=tm.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
@@ -1274,9 +1314,29 @@ function handleSharedExpense(a,arg){
 
 /* ===== 6. 情侣档案 ===== */
 function cpData(){return load(KEYS.couple,{});}
+function daysToNext(md){ // md="MM-DD"，返回到下一个该日还剩多少天
+  const now=new Date();const y=now.getFullYear();
+  let diff=Math.round((new Date(y+"-"+md+"T00:00:00")-now)/86400000);
+  if(diff<0){diff=Math.round((new Date((y+1)+"-"+md+"T00:00:00")-now)/86400000);}
+  return diff;
+}
 function renderCouple(){
   const d=cpData();const logs=d.logs||[];const album=d.album||[];
+  const memos=(d.memos||[]).slice().sort((a,b)=>daysToNext(a.date.slice(5))-daysToNext(b.date.slice(5)));
+  const recs=(d.records||[]).slice().sort((a,b)=>a.date<b.date?1:-1);
+  const memoHtml=memos.length?memos.map(m=>{const left=daysToNext(m.date.slice(5));const near=(left<=3);return `<div style="border-bottom:1px solid var(--line);padding:10px 0"><div class="spread"><b>${escapeHtml(m.name)}</b>${near?`<span class="pill w">${left===0?"🎉 就是今天":"🔔 还有 "+left+" 天"}</span>`:`<span class="muted">还有 ${left} 天</span>`}</div><div class="muted" style="margin-top:4px">📅 ${m.date} · 每年同一天 · 提前 3 天提醒<button class="btn warn sm" data-action="cpmemodel" data-arg="${m.id}" style="margin-left:8px">删</button></div></div>`;}).join(""):`<div class="empty">还没添加纪念日，记录你们的特别日子 💝</div>`;
+  const recBar=cpRecordMode?`<div style="border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:12px;background:var(--primary-soft)"><div class="row" style="gap:8px;flex-wrap:wrap"><input class="fld" id="cpRecDate" type="date" value="${today()}" style="width:140px"><input class="fld" id="cpRecEvent" placeholder="事件（必填）" style="flex:1;min-width:140px"><input class="fld" id="cpRecPhoto" type="file" accept="image/*" style="width:160px"><input class="fld" id="cpRecNote" placeholder="备注（可选）" style="flex:1;min-width:120px"><button class="btn sm" data-action="cprecfast">归档</button></div></div>`:"";
+  const recHtml=recs.length?recs.map(r=>{const kw=((r.date||"")+" "+(r.event||"")+" "+(r.note||"")).toLowerCase();return `<div class="cp-rec-item" data-search="${escapeHtml(kw)}"><div class="c-date">📅 ${r.date}</div><div class="c-event">${escapeHtml(r.event)}</div>${r.photo?`<div class="c-photo"><a href="${r.photo}" target="_blank"><img src="${r.photo}" alt="照片"></a></div>`:`<div class="c-photo muted">—</div>`}<div class="c-note ${r.note?"":"muted"}">${r.note?escapeHtml(r.note):"—"}</div><button class="btn warn sm c-del" data-action="cprecdel" data-arg="${r.id}">删</button></div>`;}).join(""):`<div class="empty">还没有记录，开启记录模式随时归档 💞</div>`;
   return `
+  <div class="card"><div class="spread"><h3>💝 重要纪念日</h3><button class="btn sm" data-action="cpmemoadd">＋ 添加纪念日</button></div>
+    ${memoHtml}
+  </div>
+  <div class="card"><div class="spread"><h3>📝 日常记录</h3><div class="row"><button class="btn sm ${cpRecordMode?"on":""}" data-action="cprectoggle">${cpRecordMode?"● 记录中":"记录模式"}</button><button class="btn sm" data-action="cprec">＋ 记一笔</button></div></div>
+    ${recBar}
+    <input id="cpRecSearch" class="fld" placeholder="🔍 搜索记录（日期 / 事件 / 备注）" value="${escapeHtml(cpRecSearch)}" style="margin:10px 0 6px;width:100%">
+    <details class="cp-rec-wrap"${cpRecSearch?" open":""}><summary style="cursor:pointer;color:var(--muted,#8a8a8a);padding:6px 0;user-select:none">📂 全部记录（${recs.length} 条 · 点击展开 / 收起）</summary>
+    <div class="cp-rec-list">${recHtml}</div></details>
+  </div>
   <div class="card"><div class="spread"><h3>💕 生活日志</h3><button class="btn sm" data-action="cplog">＋ 写日志</button></div>
     ${logs.length?logs.slice().reverse().map(l=>`<div style="border-bottom:1px solid var(--line);padding:10px 0"><div class="spread"><b>${escapeHtml(l.title)}</b><span class="muted">${l.date}</span></div><div class="muted" style="margin-top:4px;white-space:pre-wrap">${escapeHtml(l.content||"")}</div><button class="btn warn sm" data-action="cplogdel" data-arg="${l.id}" style="margin-top:6px">删除</button></div>`).join(""):`<div class="empty">还没有生活日志，记录今天的美好 🌟</div>`}
   </div>
@@ -1285,6 +1345,16 @@ function renderCouple(){
   </div>`;
 }
 function handleCouple(a,arg){
+  if(a==="cpmemoadd"){openForm({title:"添加纪念日",submitText:"保存",values:{date:today(),remind:3},
+    fields:[{key:"name",label:"名称（如：在一起纪念日 / 生日）",required:true},{key:"date",label:"日期",type:"date",required:true}],
+    onSubmit:v=>{v.remind=3;const d=cpData();d.memos=d.memos||[];d.memos.push(Object.assign({id:uid()},v));save(KEYS.couple,d);toast("已添加","ok");render();}});return;}
+  if(a==="cpmemodel"){const d=cpData();d.memos=(d.memos||[]).filter(m=>m.id!==arg);save(KEYS.couple,d);toast("已删除");render();return;}
+  if(a==="cprectoggle"){cpRecordMode=!cpRecordMode;render();return;}
+  if(a==="cprec"){openForm({title:"记一笔日常记录",submitText:"归档",values:{date:today()},
+    fields:[{key:"date",label:"日期",type:"date",required:true},{key:"event",label:"事件",required:true},{key:"photo",label:"照片",type:"file",accept:"image/*"},{key:"note",label:"备注（可选）",type:"textarea"}],
+    onSubmit:v=>{const d=cpData();d.records=d.records||[];d.records.push(Object.assign({id:uid()},v));save(KEYS.couple,d);toast("已归档 ✓","ok");render();}});return;}
+  if(a==="cprecfast"){const date=$("#cpRecDate").value||today();const event=($("#cpRecEvent").value||"").trim();if(!event){toast("请填写事件","warn");return;}const note=($("#cpRecNote").value||"").trim();const file=$("#cpRecPhoto").files[0];const finish=photo=>{const d=cpData();d.records=d.records||[];d.records.push({id:uid(),date:date,event:event,photo:photo||"",note:note});save(KEYS.couple,d);toast("已归档 ✓","ok");render();setTimeout(()=>{const el=$("#cpRecEvent");if(el)el.focus();},60);};if(file){const rd=new FileReader();rd.onload=()=>finish(rd.result);rd.readAsDataURL(file);}else finish("");return;}
+  if(a==="cprecdel"){const d=cpData();d.records=(d.records||[]).filter(r=>r.id!==arg);save(KEYS.couple,d);toast("已删除");render();return;}
   if(a==="cplog"){openForm({title:"写生活日志",submitText:"保存",values:{date:today()},
     fields:[{key:"date",label:"日期",type:"date",required:true},{key:"title",label:"标题",required:true},{key:"content",label:"内容",type:"textarea"}],
     onSubmit:v=>{const d=cpData();d.logs=d.logs||[];d.logs.push(Object.assign({id:uid()},v));save(KEYS.couple,d);toast("已保存","ok");render();}});return;}
