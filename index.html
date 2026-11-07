@@ -429,7 +429,7 @@ async function sbPull(){
     const rows=await sbJson(res)||[];
     const cloud={};rows.forEach(r=>{cloud[r.key]={id:r.id,value:r.value};});
     for(const k of bizKeys()){const bare=k.replace(PREFIX,"");if(!cloud[bare]){try{await sbUpsert(bare,load(k,null));}catch(e){}}}
-    for(const bare in cloud){if(bare===SB_STATE_KEY.replace(PREFIX,""))continue;const v=cloud[bare].value;try{localStorage.setItem(PREFIX+bare,JSON.stringify(v));}catch(e){MEM[PREFIX+bare]=v;}}
+    for(const bare in cloud){if(bare===SB_STATE_KEY.replace(PREFIX,""))continue;const v=cloud[bare].value;const localRaw=localStorage.getItem(PREFIX+bare);if(localRaw!=null&&JSON.stringify(v).length<localRaw.length)continue;try{localStorage.setItem(PREFIX+bare,JSON.stringify(v));}catch(e){MEM[PREFIX+bare]=v;}}
     applySettings();render();
     toast("已从云端同步数据 ✓","ok");
   }catch(e){
@@ -489,7 +489,7 @@ function stripQuotes(v){if(typeof v!=="string")return v;let s=v.trim();if((s.sta
 function normalizeQuotes(obj){if(Array.isArray(obj))return obj.map(normalizeQuotes);if(obj&&typeof obj==="object"){const o={};for(const k in obj){const vk=stripQuotes(k);let val=obj[k];if(typeof val==="string"&&/^["']?\d+(\.\d+)?["']?$/.test(val.trim()))val=stripQuotes(val);else if(typeof val==="string")val=val.trim();o[vk]=normalizeQuotes(val);}return o;}return obj;}
 
 /* ===== 弹出表单 ===== */
-function compressImage(file,maxDim,quality){return new Promise(res=>{if(!file||!file.type||file.type.indexOf("image/")!==0){res("");return;}const rd=new FileReader();rd.onerror=()=>res("");rd.onload=e=>{const img=new Image();img.onerror=()=>res("");img.onload=()=>{try{let w=img.width,h=img.height;const sc=Math.min(1,maxDim/Math.max(w,h));const cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc));const cv=document.createElement("canvas");cv.width=cw;cv.height=ch;cv.getContext("2d").drawImage(img,0,0,cw,ch);res(cv.toDataURL("image/jpeg",quality));}catch(err){res("");}};img.src=e.target.result;};rd.readAsDataURL(file);});}
+function compressImage(file,maxDim,quality){return new Promise(res=>{if(!file||!file.type||file.type.indexOf("image/")!==0){res("");return;}const rd=new FileReader();rd.onerror=()=>res("");rd.onload=e=>{const raw=e.target.result;const img=new Image();img.onerror=()=>res(raw);img.onload=()=>{try{let w=img.width,h=img.height;const sc=Math.min(1,maxDim/Math.max(w,h));const cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc));const cv=document.createElement("canvas");cv.width=cw;cv.height=ch;cv.getContext("2d").drawImage(img,0,0,cw,ch);res(cv.toDataURL("image/jpeg",quality));}catch(err){res(raw);}};img.src=raw;};rd.readAsDataURL(file);});}
 function copyText(t){try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);return;}const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.top="-9999px";ta.style.opacity="0";document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(e){}document.body.removeChild(ta);}catch(e){}}
 function openForm(cfg){
   const ov=document.createElement("div");ov.className="overlay center";
@@ -1330,7 +1330,7 @@ function renderCouple(){
   const recs=(d.records||[]).slice().sort((a,b)=>a.date<b.date?1:-1);
   const memoHtml=memos.length?memos.map(m=>{const left=daysToNext(m.date.slice(5));const near=(left<=3);return `<div style="border-bottom:1px solid var(--line);padding:10px 0"><div class="spread"><b>${escapeHtml(m.name)}</b>${near?`<span class="pill w">${left===0?"🎉 就是今天":"🔔 还有 "+left+" 天"}</span>`:`<span class="muted">还有 ${left} 天</span>`}</div><div class="muted" style="margin-top:4px">📅 ${m.date} · 每年同一天 · 提前 3 天提醒<button class="btn warn sm" data-action="cpmemodel" data-arg="${m.id}" style="margin-left:8px">删</button></div></div>`;}).join(""):`<div class="empty">还没添加纪念日，记录你们的特别日子 💝</div>`;
   const recBar=cpRecordMode?`<div style="border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:12px;background:var(--primary-soft)"><div class="row" style="gap:8px;flex-wrap:wrap"><input class="fld" id="cpRecDate" type="date" value="${today()}" style="width:140px"><input class="fld" id="cpRecEvent" placeholder="事件（必填）" style="flex:1;min-width:140px"><input class="fld" id="cpRecPhoto" type="file" accept="image/*" style="width:160px"><input class="fld" id="cpRecNote" placeholder="备注（可选）" style="flex:1;min-width:120px"><button class="btn sm" data-action="cprecfast">归档</button></div></div>`:"";
-  const recHtml=recs.length?recs.map(r=>{const kw=((r.date||"")+" "+(r.event||"")+" "+(r.note||"")).toLowerCase();return `<div class="cp-rec-item" data-search="${escapeHtml(kw)}"><div class="c-date">📅 ${r.date}</div><div class="c-event">${escapeHtml(r.event)}</div>${r.photo?`<div class="c-photo"><a href="${r.photo}" target="_blank"><img src="${r.photo}" alt="照片"></a></div>`:`<div class="c-photo muted">—</div>`}<div class="c-note ${r.note?"":"muted"}">${r.note?escapeHtml(r.note):"—"}</div><button class="btn warn sm c-del" data-action="cprecdel" data-arg="${r.id}">删</button></div>`;}).join(""):`<div class="empty">还没有记录，开启记录模式随时归档 💞</div>`;
+  const recHtml=recs.length?recs.map(r=>{const kw=((r.date||"")+" "+(r.event||"")+" "+(r.note||"")).toLowerCase();return `<div class="cp-rec-item" data-search="${escapeHtml(kw)}"><div class="c-date">📅 ${r.date}</div><div class="c-event">${escapeHtml(r.event)}</div>${r.photo?`<div class="c-photo"><img src="${r.photo}" data-action="cpphoto" data-arg="${r.id}" alt="照片" style="cursor:pointer"></div>`:`<div class="c-photo muted">—</div>`}<div class="c-note ${r.note?"":"muted"}">${r.note?escapeHtml(r.note):"—"}</div><button class="btn warn sm c-del" data-action="cprecdel" data-arg="${r.id}">删</button></div>`;}).join(""):`<div class="empty">还没有记录，开启记录模式随时归档 💞</div>`;
   return `
   <div class="card"><div class="spread"><h3>💝 重要纪念日</h3><button class="btn sm" data-action="cpmemoadd">＋ 添加纪念日</button></div>
     ${memoHtml}
@@ -1349,6 +1349,8 @@ function renderCouple(){
   </div>`;
 }
 function handleCouple(a,arg){
+  if(a==="cpphoto"){const d=cpData();const rec=(d.records||[]).find(r=>r.id===arg);if(rec&&rec.photo){openView("📷 照片查看",'<div style="text-align:center"><img src="'+rec.photo+'" style="max-width:100%;max-height:72vh;border-radius:10px"></div>');}else toast("没有照片","warn");return;}
+
   if(a==="cpmemoadd"){openForm({title:"添加纪念日",submitText:"保存",values:{date:today(),remind:3},
     fields:[{key:"name",label:"名称（如：在一起纪念日 / 生日）",required:true},{key:"date",label:"日期",type:"date",required:true}],
     onSubmit:v=>{v.remind=3;const d=cpData();d.memos=d.memos||[];d.memos.push(Object.assign({id:uid()},v));save(KEYS.couple,d);toast("已添加","ok");render();}});return;}
