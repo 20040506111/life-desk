@@ -240,6 +240,7 @@ table.schtab td.sch-empty:hover{box-shadow:none;transform:none;}
 .cp-rec-item .c-note{word-break:break-word;white-space:pre-wrap;line-height:1.5;align-self:center;color:var(--muted,#8a8a8a)}
 .cp-rec-item .c-del{align-self:center;justify-self:end}
 @media(max-width:600px){.cp-rec-item{grid-template-columns:1fr auto;gap:6px 10px}.cp-rec-item .c-date{grid-column:1}.cp-rec-item .c-del{grid-column:2;grid-row:1}.cp-rec-item .c-event{grid-column:1 / -1}.cp-rec-item .c-photo{grid-column:1}.cp-rec-item .c-note{grid-column:1 / -1}}
+.vlink{color:var(--primary,#2f6df6);text-decoration:none;font-weight:600}.vlink:hover{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -488,6 +489,8 @@ function stripQuotes(v){if(typeof v!=="string")return v;let s=v.trim();if((s.sta
 function normalizeQuotes(obj){if(Array.isArray(obj))return obj.map(normalizeQuotes);if(obj&&typeof obj==="object"){const o={};for(const k in obj){const vk=stripQuotes(k);let val=obj[k];if(typeof val==="string"&&/^["']?\d+(\.\d+)?["']?$/.test(val.trim()))val=stripQuotes(val);else if(typeof val==="string")val=val.trim();o[vk]=normalizeQuotes(val);}return o;}return obj;}
 
 /* ===== 弹出表单 ===== */
+function compressImage(file,maxDim,quality){return new Promise(res=>{if(!file||!file.type||file.type.indexOf("image/")!==0){res("");return;}const rd=new FileReader();rd.onerror=()=>res("");rd.onload=e=>{const img=new Image();img.onerror=()=>res("");img.onload=()=>{try{let w=img.width,h=img.height;const sc=Math.min(1,maxDim/Math.max(w,h));const cw=Math.max(1,Math.round(w*sc)),ch=Math.max(1,Math.round(h*sc));const cv=document.createElement("canvas");cv.width=cw;cv.height=ch;cv.getContext("2d").drawImage(img,0,0,cw,ch);res(cv.toDataURL("image/jpeg",quality));}catch(err){res("");}};img.src=e.target.result;};rd.readAsDataURL(file);});}
+function copyText(t){try{if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t);return;}const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.top="-9999px";ta.style.opacity="0";document.body.appendChild(ta);ta.select();try{document.execCommand("copy");}catch(e){}document.body.removeChild(ta);}catch(e){}}
 function openForm(cfg){
   const ov=document.createElement("div");ov.className="overlay center";
   const fields=(cfg.fields||[]).map(f=>{
@@ -502,7 +505,7 @@ function openForm(cfg){
   ov.innerHTML=`<div class="sheet"><h3>${escapeHtml(cfg.title)}<button class="close" data-x>×</button></h3>${fields}<div class="actions"><button class="btn line" data-x>取消</button>${more}<button class="btn" data-submit>${escapeHtml(cfg.submitText||"保存")}</button></div></div>`;
   document.body.appendChild(ov);
   const close=()=>ov.remove();
-  const collect=async()=>{const vals={};let ok=true;const fileReads=[];ov.querySelectorAll(".fld").forEach(el=>{const k=el.dataset.key;if(el.type==="file"){const f=el.files[0];if(f)fileReads.push(new Promise(res=>{const rd=new FileReader();rd.onload=()=>res([k,rd.result]);rd.readAsDataURL(f);}));else vals[k]="";return;}let v=el.value;const req=el.closest(".field").querySelector("label").innerHTML.includes("*");if(el.tagName!=="SELECT"&&el.type!=="number")v=v.trim();if(el.type==="number")v=v===""?0:Number(v);if(req&&v===""){ok=false;el.style.borderColor="var(--warn)";}vals[k]=v;});if(!ok){toast("请填写必填项","warn");return null;}if(fileReads.length){const pr=await Promise.all(fileReads);pr.forEach(p=>vals[p[0]]=p[1]);}return vals;};
+  const collect=async()=>{const vals={};let ok=true;const fileReads=[];ov.querySelectorAll(".fld").forEach(el=>{const k=el.dataset.key;if(el.type==="file"){const f=el.files[0];if(f)fileReads.push(compressImage(f,1024,0.82).then(d=>[k,d]).catch(()=>[k,""]));else vals[k]="";return;}let v=el.value;const req=el.closest(".field").querySelector("label").innerHTML.includes("*");if(el.tagName!=="SELECT"&&el.type!=="number")v=v.trim();if(el.type==="number")v=v===""?0:Number(v);if(req&&v===""){ok=false;el.style.borderColor="var(--warn)";}vals[k]=v;});if(!ok){toast("请填写必填项","warn");return null;}if(fileReads.length){const pr=await Promise.all(fileReads);pr.forEach(p=>vals[p[0]]=p[1]);}return vals;};
   ov.addEventListener("click",e=>{if(e.target===ov||e.target.hasAttribute("data-x"))close();});
   ov.querySelector("[data-submit]").addEventListener("click",async()=>{const vals=await collect();if(!vals)return;cfg.onSubmit(vals);close();if(cfg.after)cfg.after();});
   (cfg.moreButtons||[]).forEach((b,i)=>{const btn=ov.querySelector('[data-more="'+i+'"]');if(!btn)return;btn.addEventListener("click",async()=>{const vals=await collect();if(!vals)return;cfg.onSubmit(vals);if(b.keepOpen){ov.querySelectorAll(".fld").forEach(el=>{if(el.type==="number"||el.tagName==="TEXTAREA"||el.type==="file")el.value="";});const f=ov.querySelector('.fld[type="number"]')||ov.querySelector("textarea.fld");if(f)f.focus();toast(b.toast||"已记录，可继续记下一笔 ✓","ok");}else{close();}});});
@@ -630,7 +633,7 @@ function renderFitness(){
     <div class="row" style="margin-top:12px"><button class="btn ghost sm" data-action="fithistory">📊 动作历史</button><button class="btn ghost sm" data-action="fitplan">🗓️ 固定训练计划</button><button class="btn ghost sm" data-action="fitexport">⬇️ 导出台账CSV</button></div>
   </div>
   <div class="card"><div class="spread"><h3>📺 B站跟练参考</h3><button class="btn sm ghost" data-action="vidadd">＋ 加卡片</button></div>
-    ${vids.length?vids.map(v=>`<div class="vcard"><div class="vt">📺</div><div class="vmeta"><div class="vtitle">${escapeHtml(v.title)}</div>${v.tag?`<span class="vtag">${escapeHtml(v.tag)}</span>`:""}<div style="margin-top:5px"><a href="${escapeHtml(v.url)}" target="_blank" rel="noopener">${escapeHtml(v.url)}</a></div></div><button class="btn warn sm" data-action="viddel" data-arg="${v.id}">移除</button></div>`).join(""):`<div class="empty">暂无参考视频卡片，只保存链接+标题，方便复制跳转 🔗</div>`}
+    ${vids.length?vids.map(v=>`<div class="vcard"><div class="vt">📺</div><div class="vmeta"><div class="vtitle">${escapeHtml(v.title)}</div>${v.tag?`<span class="vtag">${escapeHtml(v.tag)}</span>`:""}<div style="margin-top:5px"><a class="vlink" href="${escapeHtml(v.url)}" target="_blank" rel="noopener noreferrer">▶ 打开视频</a> <button class="btn ghost sm" data-action="vidcopy" data-arg="${v.id}">📋 复制</button></div></div><button class="btn warn sm" data-action="viddel" data-arg="${v.id}">移除</button></div>`).join(""):`<div class="empty">暂无参考视频卡片，只保存链接+标题，方便复制跳转 🔗</div>`}
   </div>`;
 }
 function handleFit(a,arg){
@@ -643,6 +646,7 @@ function handleFit(a,arg){
   if(a==="vidadd"){openForm({title:"新增 B站参考视频",submitText:"保存卡片",fields:[{key:"title",label:"视频标题",required:true},{key:"url",label:"B站链接",required:true,ph:"https://..."},{key:"tag",label:"标签",ph:"如 胸/背/有氧"}],
       onSubmit:v=>{const a2=fitVideos();a2.push(Object.assign({id:uid()},v));save(KEYS.videos,a2);toast("已添加卡片","ok");render();}});return;}
   if(a==="viddel"){save(KEYS.videos,fitVideos().filter(v=>v.id!==arg));toast("已移除");render();return;}
+  if(a==="vidcopy"){const v=fitVideos().find(x=>x.id===arg);if(v&&v.url){copyText(v.url);toast("链接已复制 ✓","ok");}else toast("该卡片没有链接","warn");return;}
   if(a==="fitexport"){const a3=fitData();download("健身台账_"+today()+".csv",toCSV(["日期","动作","负重kg","组数","次数","备注"],a3.map(r=>[r.date,r.action,r.weight,r.sets,r.reps,r.note])),"text/csv;charset=utf-8");toast("已导出CSV","ok");return;}
   if(a==="fithistory"){const a4=fitData();const map={};a4.forEach(r=>map[r.action]=(map[r.action]||0)+1);
     const rows=Object.keys(map).sort((x,y)=>map[y]-map[x]).map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${map[k]}</td></tr>`).join("");
@@ -1353,7 +1357,7 @@ function handleCouple(a,arg){
   if(a==="cprec"){openForm({title:"记一笔日常记录",submitText:"归档",values:{date:today()},
     fields:[{key:"date",label:"日期",type:"date",required:true},{key:"event",label:"事件",required:true},{key:"photo",label:"照片",type:"file",accept:"image/*"},{key:"note",label:"备注（可选）",type:"textarea"}],
     onSubmit:v=>{const d=cpData();d.records=d.records||[];d.records.push(Object.assign({id:uid()},v));save(KEYS.couple,d);toast("已归档 ✓","ok");render();}});return;}
-  if(a==="cprecfast"){const date=$("#cpRecDate").value||today();const event=($("#cpRecEvent").value||"").trim();if(!event){toast("请填写事件","warn");return;}const note=($("#cpRecNote").value||"").trim();const file=$("#cpRecPhoto").files[0];const finish=photo=>{const d=cpData();d.records=d.records||[];d.records.push({id:uid(),date:date,event:event,photo:photo||"",note:note});save(KEYS.couple,d);toast("已归档 ✓","ok");render();setTimeout(()=>{const el=$("#cpRecEvent");if(el)el.focus();},60);};if(file){const rd=new FileReader();rd.onload=()=>finish(rd.result);rd.readAsDataURL(file);}else finish("");return;}
+  if(a==="cprecfast"){const date=$("#cpRecDate").value||today();const event=($("#cpRecEvent").value||"").trim();if(!event){toast("请填写事件","warn");return;}const note=($("#cpRecNote").value||"").trim();const file=$("#cpRecPhoto").files[0];const finish=photo=>{const d=cpData();d.records=d.records||[];d.records.push({id:uid(),date:date,event:event,photo:photo||"",note:note});save(KEYS.couple,d);toast("已归档 ✓","ok");render();setTimeout(()=>{const el=$("#cpRecEvent");if(el)el.focus();},60);};if(file){compressImage(file,1024,0.82).then(photo=>finish(photo)).catch(()=>finish(""));}else finish("");return;}
   if(a==="cprecdel"){const d=cpData();d.records=(d.records||[]).filter(r=>r.id!==arg);save(KEYS.couple,d);toast("已删除");render();return;}
   if(a==="cplog"){openForm({title:"写生活日志",submitText:"保存",values:{date:today()},
     fields:[{key:"date",label:"日期",type:"date",required:true},{key:"title",label:"标题",required:true},{key:"content",label:"内容",type:"textarea"}],
