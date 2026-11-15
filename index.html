@@ -292,6 +292,7 @@ let sbSession=null;
 let expSortDir="desc",shSortDir="desc"; // 账单排序方向：desc=晚→早，asc=早→晚     // {access_token,refresh_token,expires_at(ms),user_id,email}
 let expStart=today().slice(0,7)+"-01",expEnd=today(); // 日常开销统计区间（默认本月至今）
 let shStart=today().slice(0,7)+"-01",shEnd=today(); // 共同开销统计区间（默认本月至今）
+let cmdStart=today().slice(0,7)+"-01",cmdEnd=today(); // 记账助手指令查询区间（默认本月至今）
 
 /* 业务键：排除“会话”与“界面状态”，避免污染云端、跨端串味 */
 function bizKeys(){
@@ -599,7 +600,7 @@ function handleAction(a,arg){
   if(a.startsWith("sal")||a.startsWith("sa"))return handleSal(a,arg);
   if(a.startsWith("hr"))return handleHours(a,arg);
   if(a.startsWith("sch"))return handleSchedule(a,arg);
-  if(a.startsWith("exp"))return handleExpense(a,arg);
+  if(a.startsWith("exp")||a.startsWith("cmd"))return handleExpense(a,arg);
   if(a.startsWith("sh"))return handleSharedExpense(a,arg);
   if(a.startsWith("sv"))return handleSave(a,arg);
   if(a.startsWith("cp"))return handleCouple(a,arg);
@@ -608,8 +609,8 @@ function handleAction(a,arg){
   if(a.startsWith("bk"))return handleBackup(a,arg);
 }
 /* ===== 界面状态记忆（打开即恢复到上次停留的板块/筛选） ===== */
-function saveState(){save(PREFIX+"state",{current:current,fitView:fitView,salMonth:salMonth,hrMonth:hrMonth,expStart:expStart,expEnd:expEnd,shStart:shStart,shEnd:shEnd,cpRecordMode:cpRecordMode,cpRecSearch:cpRecSearch},true);}
-function loadState(){const s=load(PREFIX+"state",null);if(s&&typeof s==="object"){if(typeof s.current==="string"&&s.current)current=s.current;if(typeof s.fitView==="string")fitView=s.fitView;if(typeof s.salMonth==="string")salMonth=s.salMonth;if(typeof s.hrMonth==="string")hrMonth=s.hrMonth;if(typeof s.expStart==="string")expStart=s.expStart;if(typeof s.expEnd==="string")expEnd=s.expEnd;if(typeof s.shStart==="string")shStart=s.shStart;if(typeof s.shEnd==="string")shEnd=s.shEnd;if(typeof s.cpRecordMode==="boolean")cpRecordMode=s.cpRecordMode;if(typeof s.cpRecSearch==="string")cpRecSearch=s.cpRecSearch;}}
+function saveState(){save(PREFIX+"state",{current:current,fitView:fitView,salMonth:salMonth,hrMonth:hrMonth,expStart:expStart,expEnd:expEnd,shStart:shStart,shEnd:shEnd,cmdStart:cmdStart,cmdEnd:cmdEnd,cpRecordMode:cpRecordMode,cpRecSearch:cpRecSearch},true);}
+function loadState(){const s=load(PREFIX+"state",null);if(s&&typeof s==="object"){if(typeof s.current==="string"&&s.current)current=s.current;if(typeof s.fitView==="string")fitView=s.fitView;if(typeof s.salMonth==="string")salMonth=s.salMonth;if(typeof s.hrMonth==="string")hrMonth=s.hrMonth;if(typeof s.expStart==="string")expStart=s.expStart;if(typeof s.expEnd==="string")expEnd=s.expEnd;if(typeof s.shStart==="string")shStart=s.shStart;if(typeof s.shEnd==="string")shEnd=s.shEnd;if(typeof s.cmdStart==="string")cmdStart=s.cmdStart;if(typeof s.cmdEnd==="string")cmdEnd=s.cmdEnd;if(typeof s.cpRecordMode==="boolean")cpRecordMode=s.cpRecordMode;if(typeof s.cpRecSearch==="string")cpRecSearch=s.cpRecSearch;}}
 
 /* ===== 1. 健身 ===== */
 function fitData(){return load(KEYS.fitness,[]);}
@@ -1037,7 +1038,7 @@ function handleSchedule(a,arg){
 }
 
 /* ===== 5. 日常开销 · 记账助手 ===== */
-const EXP_CATS=["餐饮","交通","住房","购物","娱乐","医疗","学习","人情","工资","兼职","理财收益","其他"];
+const EXP_CATS=["餐饮","水果","话费","交通","住房","购物","娱乐","医疗","学习","人情","工资","兼职","理财收益","其他"];
 const EXP_TYPE=["收入","支出"];
 const KEY_CHAT=PREFIX+"expense_chat";
 let expChat=load(KEY_CHAT,null);
@@ -1055,8 +1056,10 @@ function thisWeek(){const d=new Date();const day=d.getDay();const mon=new Date(d
 function detectCategory(text){
   const map=[
     [/餐饮|吃饭|午饭|晚餐|早饭|早餐|外卖|食堂|聚餐|餐厅|饭店|咖啡|奶茶|零食|宵夜/, "餐饮"],
+    [/水果|苹果|香蕉|橘子|橙子|葡萄|西瓜|草莓|梨|桃|切果|果切/, "水果"],
+    [/话费|手机费|充话费|话费充值|电话费/, "话费"],
     [/交通|打车|地铁|公交|的士|出租|高铁|火车|机票|车票|加油|停车|过路|车费|滴滴|打车费|公交卡/, "交通"],
-    [/住房|房租|房贷|物业|水电|燃气|话费|网费|宽带|物业费|取暖|房租费/, "住房"],
+    [/住房|房租|房贷|物业|水电|燃气|网费|宽带|物业费|取暖|房租费/, "住房"],
     [/购物|买|衣服|鞋|淘宝|京东|超市|网购|日用品|化妆品|数码|商场/, "购物"],
     [/娱乐|电影|游戏|旅游|唱歌|ktv|玩|游乐|演出|密室|桌游/, "娱乐"],
     [/医疗|药|医院|体检|看病|诊所|挂号|买药|医疗/, "医疗"],
@@ -1128,12 +1131,28 @@ function filterByPeriod(all,text){
   else if(/昨天/.test(text)){start=end=shiftDay(today(),-1);label=start;}
   else if(/本周|这周|这一周/.test(text)){const w=thisWeek();start=w[0];end=w[1];label="本周";}
   else{const mm=text.match(/(\d{4})[-年.](\d{1,2})/);if(mm){const m=mm[1]+"-"+String(+mm[2]).padStart(2,"0");start=m+"-01";end=m+"-31";label=m;}else{const m2=text.match(/(\d{1,2})\s*月/);if(m2){const m=y+"-"+String(+m2[1]).padStart(2,"0");start=m+"-01";end=m+"-31";label=m;}}}
+  if(!start&&!end&&cmdStart&&cmdEnd){start=cmdStart;end=cmdEnd;label=cmdStart+" 至 "+cmdEnd;}
   let list=all;
   if(start&&end)list=all.filter(r=>r.date>=start&&r.date<=end);
   return {list,label,start,end};
 }
+/* 区间覆盖的月份列表 YYYY-MM */
+function monthsBetween(start,end){
+  if(!start||!end)return [];
+  let [sy,sm]=start.slice(0,7).split("-").map(Number);
+  const [ey,em]=end.slice(0,7).split("-").map(Number);
+  const out=[];let guard=0;
+  while((sy<ey||(sy===ey&&sm<=em))&&guard++<240){out.push(sy+"-"+String(sm).padStart(2,"0"));sm++;if(sm>12){sm=1;sy++;}}
+  return out;
+}
+/* 区间累计预算：覆盖月份中已设预算之和 */
+function periodBudget(start,end){
+  const bd=budgetData();const months=monthsBetween(start,end);
+  const setMonths=months.filter(m=>bd[m]!=null);
+  return {amount:setMonths.reduce((s,m)=>s+(Number(bd[m])||0),0),months:months,setMonths:setMonths};
+}
 function emptyHtml(){return `<div class="empty">📭 该范围内暂无记录</div>`;}
-function hintHtml(){return `<div class="warnbox">💡 指令示例：<br>• 记账 今天 餐饮 支出 35 午饭<br>• 查账单 本月 ｜ 分类汇总 ｜ 设置预算 3000 ｜ 预算剩余 ｜ 复盘</div>`;}
+function hintHtml(){return `<div class="warnbox">💡 指令示例：<br>• 记账 今天 餐饮 支出 35 午饭<br>• 查账单 ｜ 分类汇总 ｜ 设置预算 3000 ｜ 预算剩余 ｜ 复盘<br>• 查询类指令默认按上方「指令区间」统计，也可在指令里写「本月/上月/2026-01到2026-06」指定</div>`;}
 /* 指令路由 */
 function routeExpenseCmd(text){
   if(/复盘|总结|月报|本月总结|月度总结|月度复盘|月度报告/.test(text))return cmdReview(text);
@@ -1186,26 +1205,31 @@ function cmdCategory(text){
   return {text:`分类汇总（${f.label}）已生成，共 ${Object.keys(cat).length} 个分类。`,html};
 }
 function cmdSetBudget(text){
-  const m=text.match(/(\d+(?:\.\d+)?)\s*(?:元|块|块钱)?/);
+  const cleaned=text.replace(/\d{4}[-年.]\d{1,2}月?\d{0,2}日?/g,"").replace(/\d{1,2}\s*月/g,"");
+  const m=cleaned.match(/(\d+(?:\.\d+)?)\s*(?:元|块|块钱)?/);
   if(!m)return {text:"没找到预算金额，例如：设置预算 3000",html:hintHtml()};
-  const amt=Number(m[1]);let month=today().slice(0,7);
+  const amt=Number(m[1]);
+  let months=[];
   const mm=text.match(/(\d{4})[-年.](\d{1,2})/);
-  if(mm)month=mm[1]+"-"+String(+mm[2]).padStart(2,"0");
-  else{const m2=text.match(/(\d{1,2})\s*月/);if(m2)month=new Date().getFullYear()+"-"+String(+m2[1]).padStart(2,"0");}
-  const bd=budgetData();bd[month]=amt;save(KEYS.budget,bd);
-  return {text:`已设置 ${month} 月度预算为 ${money(amt)}`,html:`<div class="okbox">💰 已设置 <b>${month}</b> 月度预算：<b>${money(amt)}</b></div>`};
+  if(mm)months=[mm[1]+"-"+String(+mm[2]).padStart(2,"0")];
+  else{const m2=text.match(/(\d{1,2})\s*月/);if(m2)months=[new Date().getFullYear()+"-"+String(+m2[1]).padStart(2,"0")];else months=monthsBetween(cmdStart,cmdEnd);}
+  if(!months.length)months=[today().slice(0,7)];
+  const bd=budgetData();months.forEach(mo=>bd[mo]=amt);save(KEYS.budget,bd);
+  const label=months.length>1?(months[0]+" ~ "+months[months.length-1]+"（共"+months.length+"个月）"):months[0];
+  return {text:`已设置 ${label} 预算为 ${money(amt)}`,html:`<div class="okbox">💰 已设置 <b>${escapeHtml(label)}</b> 预算：<b>${money(amt)}</b></div>`};
 }
 function cmdViewBudget(text){
-  let month=today().slice(0,7);
-  const mm=text.match(/(\d{4})[-年.](\d{1,2})/);
-  if(mm)month=mm[1]+"-"+String(+mm[2]).padStart(2,"0");
-  else{const m2=text.match(/(\d{1,2})\s*月/);if(m2)month=new Date().getFullYear()+"-"+String(+m2[1]).padStart(2,"0");}
-  const bd=budgetData();const amt=bd[month];
-  const spent=expData().filter(r=>r.date.slice(0,7)===month&&r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
-  if(amt==null)return {text:`${month} 尚未设置预算。发送「设置预算 3000」即可设定。`,html:`<div class="warnbox">⚠️ ${month} 还没设置预算。点下方「💰 设预算」或发送「设置预算 3000」。</div>`};
+  const f=filterByPeriod(expData(),text);
+  const start=f.start||cmdStart,end=f.end||cmdEnd;
+  const label=monthsBetween(start,end).length>1?(start+" ~ "+end):f.label;
+  const pb=periodBudget(start,end);
+  const amt=pb.amount;
+  const spent=f.list.filter(r=>r.type==="支出").reduce((s,r)=>s+(Number(r.amount)||0),0);
+  if(!pb.setMonths.length)return {text:`${label} 尚未设置预算。发送「设置预算 3000」即可设定。`,html:`<div class="warnbox">⚠️ ${escapeHtml(label)} 还没设置预算。点下方「💰 设预算」或发送「设置预算 3000」。</div>`};
   const remain=amt-spent;
-  const html=`<table><thead><tr><th>项目</th><th class="num">金额</th></tr></thead><tbody><tr><td>📅 月份</td><td>${month}</td></tr><tr><td>💰 月度预算</td><td class="num">${fmt2(amt)}</td></tr><tr><td>🔴 已支出</td><td class="num" style="color:var(--warn)">${fmt2(spent)}</td></tr><tr><td><b>结余（剩余）</b></td><td class="num" style="color:${remain<0?'var(--warn)':'var(--success)'}"><b>${fmt2(remain)}</b></td></tr><tr><td>状态</td><td>${remain<0?'<span class="pill w">已超支</span>':'<span class="pill s">盈余中</span>'}</td></tr></tbody></table>`;
-  return {text:`${month} 预算 ${money(amt)}，已支出 ${money(spent)}，剩余 ${money(remain)}${remain<0?'（已超支）':''}`,html};
+  const scope=pb.setMonths.length>1?`<tr><td>🗓️ 覆盖月份</td><td>${pb.setMonths[0]} ~ ${pb.setMonths[pb.setMonths.length-1]}（${pb.setMonths.length} 个月）</td></tr>`:`<tr><td>📅 月份</td><td>${pb.setMonths[0]}</td></tr>`;
+  const html=`<p class="muted">查询区间：${escapeHtml(f.label)}</p><table><thead><tr><th>项目</th><th class="num">金额</th></tr></thead><tbody>${scope}<tr><td>💰 预算合计</td><td class="num">${fmt2(amt)}</td></tr><tr><td>🔴 区间支出</td><td class="num" style="color:var(--warn)">${fmt2(spent)}</td></tr><tr><td><b>结余（剩余）</b></td><td class="num" style="color:${remain<0?'var(--warn)':'var(--success)'}"><b>${fmt2(remain)}</b></td></tr><tr><td>状态</td><td>${remain<0?'<span class="pill w">已超支</span>':'<span class="pill s">盈余中</span>'}</td></tr></tbody></table>`;
+  return {text:`${label} 预算 ${money(amt)}，区间支出 ${money(spent)}，剩余 ${money(remain)}${remain<0?'（已超支）':''}`,html};
 }
 function cmdReview(text){
   let f=filterByPeriod(expData(),text);
@@ -1213,7 +1237,7 @@ function cmdReview(text){
   if(label==="全部"){const m=today().slice(0,7);const start=m+"-01",end=m+"-31";label=m;list=expData().filter(r=>r.date>=start&&r.date<=end);}
   let inc=0,out=0;const catOut={};let maxOut={amount:0};
   list.forEach(r=>{const a=Number(r.amount)||0;if(r.type==="收入")inc+=a;else{out+=a;catOut[r.category||"其他"]=(catOut[r.category||"其他"]||0)+a;if(a>maxOut.amount)maxOut={amount:a,category:r.category,note:r.note,date:r.date};}});
-  const bd=budgetData();const monthKey=label.slice(0,7);const amt=bd[monthKey];
+  const pb=periodBudget(f.start||cmdStart,f.end||cmdEnd);const amt=pb.setMonths.length?pb.amount:null;
   const topOut=Object.keys(catOut).sort((a,b)=>catOut[b]-catOut[a]).slice(0,5);
   const html=`<h4>📈 ${escapeHtml(label)} 复盘</h4><table><thead><tr><th>指标</th><th class="num">数值</th></tr></thead><tbody><tr><td>🟢 总收入</td><td class="num" style="color:var(--success)">${fmt2(inc)}</td></tr><tr><td>🔴 总支出</td><td class="num" style="color:var(--warn)">${fmt2(out)}</td></tr><tr><td><b>结余</b></td><td class="num"><b>${fmt2(inc-out)}</b></td></tr><tr><td>记账笔数</td><td class="num">${list.length}</td></tr>${amt!=null?`<tr><td>💰 预算</td><td class="num">${fmt2(amt)}</td></tr><tr><td>预算剩余</td><td class="num" style="color:${(amt-out)<0?'var(--warn)':'var(--success)'}">${fmt2(amt-out)}</td></tr>`:""}</tbody></table>${topOut.length?`<h4>🔥 支出 Top ${topOut.length}</h4><table><thead><tr><th>分类</th><th class="num">金额</th></tr></thead><tbody>${topOut.map(k=>`<tr><td>${escapeHtml(k)}</td><td class="num">${fmt2(catOut[k])}</td></tr>`).join("")}</tbody></table>`:""}${maxOut.amount?`<p class="muted">最大单笔支出：${maxOut.date} ${escapeHtml(maxOut.category||"")} ${money(maxOut.amount)}${maxOut.note?'（'+escapeHtml(maxOut.note)+'）':''}</p>`:""}`;
   return {text:`${label}复盘：收入${money(inc)}，支出${money(out)}，结余${money(inc-out)}${amt!=null?'，预算剩余'+money(amt-out):''}`,html};
@@ -1240,8 +1264,16 @@ function renderExpense(){
   const chatCard=`
   <div class="card chat">
     <h3>💬 记账助手 <span class="badge">发消息即可</span></h3>
+    <div class="row" style="margin:8px 0 4px;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="muted">🗓️ 指令区间</span>
+      <input type="date" id="cmdStart" class="fld" value="${cmdStart}" style="width:auto">
+      <span class="muted">至</span>
+      <input type="date" id="cmdEnd" class="fld" value="${cmdEnd}" style="width:auto">
+      <button class="btn sm" data-action="cmdapply">应用</button>
+      <button class="btn ghost sm" data-action="cmdthismonth">本月</button>
+    </div>
     <div class="chatlog" id="expChatLog">${expChat.map(m=>`<div class="msg ${m.role}">${m.role==="bot"?'<div class="av">🤖</div>':''}<div class="bubble">${m.html||escapeHtml(m.text)}</div></div>`).join("")}</div>
-    <div class="chiprow">${[["RUN:查账单 本月","📋 查账单"],["RUN:分类汇总","📊 分类汇总"],["RUN:预算剩余","👀 预算剩余"],["RUN:复盘","📈 复盘"],["FILL:记账 今天 餐饮 支出 ","📝 记一笔"],["FILL:设置预算 ","💰 设预算"]].map(c=>`<button class="chip" data-action="expquick" data-arg="${c[0]}">${c[1]}</button>`).join("")}</div>
+    <div class="chiprow">${[["RUN:查账单","📋 查账单"],["RUN:分类汇总","📊 分类汇总"],["RUN:预算剩余","👀 预算剩余"],["RUN:复盘","📈 复盘"],["FILL:记账 今天 餐饮 支出 ","📝 记一笔"],["FILL:设置预算 ","💰 设预算"]].map(c=>`<button class="chip" data-action="expquick" data-arg="${c[0]}">${c[1]}</button>`).join("")}</div>
     <div class="chatbar"><input id="expChatInput" class="fld" placeholder="发消息记账 / 查询，如：记账 今天 交通 支出 12 地铁" /><button class="btn sm" data-action="expsend">发送</button></div>
   </div>`;
   return `
@@ -1266,6 +1298,8 @@ function renderExpense(){
   </div>`;
 }
 function handleExpense(a,arg){
+  if(a==="cmdapply"){const s=$("#cmdStart"),e=$("#cmdEnd");if(s&&s.value)cmdStart=s.value;if(e&&e.value)cmdEnd=e.value;saveState();render();toast("指令区间已更新","ok");return;}
+  if(a==="cmdthismonth"){cmdStart=today().slice(0,7)+"-01";cmdEnd=today();saveState();render();return;}
   if(a==="expsend"){const inp=$("#expChatInput");if(inp&&inp.value.trim())runExpenseCmd(inp.value);return;}
   if(a==="expquick"){const v=arg||"";if(v.startsWith("FILL:")){const inp=$("#expChatInput");if(inp){inp.value=v.slice(5);inp.focus();}return;}if(v.startsWith("RUN:")){runExpenseCmd(v.slice(4));return;}return;}
   if(a==="expadd"){const all=expData();const ed=arg?all.find(r=>r.id===arg):null;
